@@ -35,6 +35,19 @@ func (e *PayloadTooLargeError) Error() string {
 	return fmt.Sprintf("ionhour: payload is %d bytes, which exceeds the %d-byte limit", e.Size, e.Max)
 }
 
+// ExitCodeRangeError is returned as the usage error (the second return value of
+// a ping) when [WithExitCode] is given a value outside 0–255. A process exit
+// code is a single byte per POSIX, so anything else is a programmer error and is
+// surfaced loudly; no request is sent.
+type ExitCodeRangeError struct {
+	// Code is the offending exit code.
+	Code int
+}
+
+func (e *ExitCodeRangeError) Error() string {
+	return fmt.Sprintf("ionhour: exit code %d is out of range (must be 0-255)", e.Code)
+}
+
 // HTTPStatusError is carried in [PingResult.Err] when the server responds with a
 // non-2xx status code.
 type HTTPStatusError struct {

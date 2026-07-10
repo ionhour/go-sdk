@@ -2,10 +2,8 @@ package ionhour
 
 import (
 	"context"
-	"errors"
 	"strings"
 	"sync"
-	"time"
 	"unicode"
 )
 
@@ -108,7 +106,7 @@ func (j *Job) String() string {
 // [PingResult] with a nil error, so a failure to reach Ionhour can never break
 // the host application. [Job.Ping] is an alias.
 func (j *Job) Success(ctx context.Context, opts ...PingOption) (PingResult, error) {
-	return j.client.doPing(ctx, j, false, buildPingRequest(opts))
+	return j.client.doPing(ctx, j, pingSuccess, buildPingRequest(opts))
 }
 
 // Ping is an alias for [Job.Success].
@@ -121,43 +119,19 @@ func (j *Job) Ping(ctx context.Context, opts ...PingOption) (PingResult, error) 
 // never panics. Its return contract matches [Job.Success]: the error is non-nil
 // only for a usage error; transport outcomes live in the [PingResult].
 func (j *Job) Fail(ctx context.Context, opts ...PingOption) (PingResult, error) {
-	return j.client.doPing(ctx, j, true, buildPingRequest(opts))
+	return j.client.doPing(ctx, j, pingFail, buildPingRequest(opts))
 }
 
-// Run wraps a unit of work with heartbeat reporting. It times fn with a
-// monotonic clock and:
+// Start reports that a run has begun (the /start variant). It is persist-only
+// telemetry: it never changes monitor status, opens or resolves incidents, or
+// resets the schedule — a job that starts and then hangs still goes LATE. Pair
+// it with the terminal [Job.Success]/[Job.Fail] via a shared [WithRID] so the
+// run's duration correlates. It never panics; its return contract matches
+// [Job.Success] (the error is non-nil only for a usage error).
 //
-//   - on success, pings Success with the measured duration and returns nil;
-//   - on error, pings Fail with the measured duration and a payload that merges
-//     {"error": err.Error()} into any caller-supplied payload, then returns fn's
-//     error unchanged.
-//
-// fn's error is always propagated so the caller sees their own failure. Errors
-// from Run's own heartbeat pings — both transport failures and usage errors such
-// as an oversized merged payload — are logged (when a logger is configured) but
-// never returned or allowed to mask fn's result. A nil fn is a usage error and
-// is returned as such.
-func (j *Job) Run(ctx context.Context, fn func(ctx context.Context) error, opts ...PingOption) error {
-	if fn == nil {
-		return errors.New("ionhour: Run requires a non-nil function")
-	}
-
-	start := time.Now()
-	runErr := fn(ctx)
-	elapsed := time.Since(start)
-
-	if runErr == nil {
-		successOpts := append([]PingOption{WithDuration(elapsed)}, opts...)
-		// Ping errors (transport or usage) are logged by doPing and swallowed
-		// here — they must never mask fn's successful result.
-		_, _ = j.Success(ctx, successOpts...)
-		return nil
-	}
-
-	failOpts := append([]PingOption{WithDuration(elapsed)}, opts...)
-	failOpts = append(failOpts, withMergedErrorPayload(runErr, opts))
-	_, _ = j.Fail(ctx, failOpts...)
-	return runErr
+// [Job.Run] and [RunValue] send this automatically before the wrapped function.
+func (j *Job) Start(ctx context.Context, opts ...PingOption) (PingResult, error) {
+	return j.client.doPing(ctx, j, pingStart, buildPingRequest(opts))
 }
 
 // effectiveAPIKey returns the per-job key when set, else the client's key.

@@ -31,6 +31,12 @@ const (
 	// maxPayloadBytes mirrors the server's 10 KiB JSON body ceiling.
 	maxPayloadBytes = 10 * 1024
 
+	// maxHostLen and maxEnvLen bound the host= and env= telemetry query params (in
+	// characters) per the Ionhour SDK contract. Over-long values are truncated
+	// client-side rather than rejected — telemetry must never fail a heartbeat.
+	maxHostLen = 253
+	maxEnvLen  = 32
+
 	envAPIKey  = "IONHOUR_API_KEY"
 	envBaseURL = "IONHOUR_BASE_URL"
 )
@@ -103,10 +109,16 @@ func NewClient(opts ...ClientOption) *Client {
 	return c
 }
 
-// defaultBackoff yields 1s after the first attempt and 2s after the second,
-// matching the contract's 1s/2s schedule.
+// defaultBackoff implements the contract's clamped retry schedule: it waits 1s
+// before the second attempt, then 2s before every subsequent attempt (1s, 2s,
+// 2s, 2s, …). The delay never grows linearly or exponentially, so a stalled
+// endpoint adds a bounded amount of latency no matter how high WithRetries is
+// set. attempt is the 1-based number of the attempt that just failed.
 func defaultBackoff(attempt int) time.Duration {
-	return time.Duration(attempt) * time.Second
+	if attempt <= 1 {
+		return time.Second
+	}
+	return 2 * time.Second
 }
 
 // String implements fmt.Stringer, redacting the API key so that logging a Client

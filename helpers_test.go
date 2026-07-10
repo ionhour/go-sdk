@@ -48,6 +48,14 @@ func (r *recorder) last(t *testing.T) capturedRequest {
 	return r.requests[len(r.requests)-1]
 }
 
+// all returns a snapshot copy of every recorded request in order, so a test can
+// assert on the start/terminal ping pair a run emits.
+func (r *recorder) all() []capturedRequest {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]capturedRequest(nil), r.requests...)
+}
+
 // newRecordingServer starts an httptest server that records each request and
 // delegates the response to handler. It is torn down automatically.
 func newRecordingServer(t *testing.T, handler http.HandlerFunc) (*httptest.Server, *recorder) {

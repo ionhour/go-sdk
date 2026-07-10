@@ -85,11 +85,13 @@ func WithJobAPIKey(apiKey string) JobOption {
 	return func(j *Job) { j.apiKey = strings.TrimSpace(apiKey) }
 }
 
-// PingOption configures a single ping ([Job.Success], [Job.Fail], [Job.Ping]) or
-// the ping emitted by [Job.Run].
+// PingOption configures a single ping ([Job.Success], [Job.Fail], [Job.Ping],
+// [Job.Start]) or the pings emitted by [Job.Run] / [RunValue].
 type PingOption func(*pingRequest)
 
-// WithRID attaches a run-correlation id, sent as the "rid" query parameter.
+// WithRID attaches a run-correlation id, sent as the "rid" query parameter. It
+// pairs a [Job.Start] ping with its terminal [Job.Success]/[Job.Fail]; see
+// [NewRID] to mint one.
 func WithRID(rid string) PingOption {
 	return func(pr *pingRequest) { pr.rid = rid }
 }
@@ -107,4 +109,57 @@ func WithPayload(payload any) PingOption {
 		pr.payload = payload
 		pr.hasPayload = true
 	}
+}
+
+// WithHost attaches a host label, sent as the "host" query parameter. A value
+// longer than 253 characters is silently truncated (telemetry must never fail a
+// heartbeat). The host is never auto-detected — it is sent only when set here.
+func WithHost(host string) PingOption {
+	return func(pr *pingRequest) {
+		truncated := truncateRunes(host, maxHostLen)
+		pr.host = &truncated
+	}
+}
+
+// WithEnv attaches an environment label (for example "production"), sent as the
+// "env" query parameter. A value longer than 32 characters is silently
+// truncated. The environment is never auto-detected — it is sent only when set.
+func WithEnv(env string) PingOption {
+	return func(pr *pingRequest) {
+		truncated := truncateRunes(env, maxEnvLen)
+		pr.env = &truncated
+	}
+}
+
+// WithExitCode attaches a process exit code, sent as the "exit_code" query
+// parameter. Valid codes are 0–255 (a single byte, per POSIX); a value outside
+// that range is a usage error, returned as the ping's second return value with
+// no request sent (see [ExitCodeRangeError]).
+func WithExitCode(code int) PingOption {
+	return func(pr *pingRequest) {
+		if code < 0 || code > 255 {
+			// Record the first usage error; execute surfaces it before any request.
+			if pr.optErr == nil {
+				pr.optErr = &ExitCodeRangeError{Code: code}
+			}
+			return
+		}
+		pr.exitCode = &code
+	}
+}
+
+// WithoutStartPing disables the automatic start ping that [Job.Run] and
+// [RunValue] send before invoking the wrapped function. It has no effect on a
+// direct [Job.Success], [Job.Fail], [Job.Start], or [Job.Ping] call.
+func WithoutStartPing() PingOption {
+	return func(pr *pingRequest) { pr.noStartPing = true }
+}
+
+// truncateRunes returns s limited to at most max runes.
+func truncateRunes(s string, max int) string {
+	r := []rune(s)
+	if len(r) <= max {
+		return s
+	}
+	return string(r[:max])
 }

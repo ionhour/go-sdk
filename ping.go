@@ -16,10 +16,15 @@ import (
 
 // pingRequest is the accumulated, per-call state built from PingOptions.
 type pingRequest struct {
-	rid        string
-	duration   *time.Duration
-	payload    any
-	hasPayload bool
+	rid         string
+	duration    *time.Duration
+	payload     any
+	hasPayload  bool
+	host        *string
+	env         *string
+	exitCode    *int
+	noStartPing bool  // Run/RunValue only; ignored on a direct ping.
+	optErr      error // first usage error from an option (e.g. exit code out of range).
 }
 
 func buildPingRequest(opts []PingOption) *pingRequest {
@@ -32,6 +37,39 @@ func buildPingRequest(opts []PingOption) *pingRequest {
 	return pr
 }
 
+// pingKind selects the ping endpoint variant and labels the failure log line.
+type pingKind int
+
+const (
+	pingSuccess pingKind = iota // {base}/signals/ping/{token}
+	pingFail                    // {base}/signals/ping/{token}/fail
+	pingStart                   // {base}/signals/ping/{token}/start
+)
+
+// pathSuffix is the URL segment appended after the token for this kind.
+func (k pingKind) pathSuffix() string {
+	switch k {
+	case pingFail:
+		return "/fail"
+	case pingStart:
+		return "/start"
+	default:
+		return ""
+	}
+}
+
+// action labels the ping in the failure log line.
+func (k pingKind) action() string {
+	switch k {
+	case pingFail:
+		return "fail"
+	case pingStart:
+		return "start"
+	default:
+		return "success"
+	}
+}
+
 // doPing runs a ping and logs the failure (if any) exactly once. It is the sole
 // entry point shared by Success, Fail, and Run.
 //
@@ -40,10 +78,10 @@ func buildPingRequest(opts []PingOption) *pingRequest {
 // misconfigured base URL) and is always nil for transport outcomes. Transport
 // failures (network errors, 429/5xx exhaustion, cancellation) stay inside
 // PingResult.Err with a nil error return, preserving the never-crash philosophy.
-func (c *Client) doPing(ctx context.Context, job *Job, fail bool, pr *pingRequest) (PingResult, error) {
-	result, usageErr := c.execute(ctx, job, fail, pr)
+func (c *Client) doPing(ctx context.Context, job *Job, kind pingKind, pr *pingRequest) (PingResult, error) {
+	result, usageErr := c.execute(ctx, job, kind, pr)
 	if !result.OK {
-		c.logError(fail, result.Err)
+		c.logError(kind, result.Err)
 	}
 	return result, usageErr
 }
@@ -52,9 +90,15 @@ func (c *Client) doPing(ctx context.Context, job *Job, fail bool, pr *pingReques
 // retry loop. It never logs — doPing owns logging so every failure path,
 // including client-side usage errors, is logged uniformly. The second return
 // value is the usage error (nil for transport outcomes).
-func (c *Client) execute(ctx context.Context, job *Job, fail bool, pr *pingRequest) (PingResult, error) {
+func (c *Client) execute(ctx context.Context, job *Job, kind pingKind, pr *pingRequest) (PingResult, error) {
 	if ctx == nil {
 		ctx = context.Background()
+	}
+
+	// An option-level usage error (e.g. an out-of-range exit code) is loud and
+	// pre-empts any request, mirroring the oversized-payload path below.
+	if pr.optErr != nil {
+		return PingResult{Err: pr.optErr}, pr.optErr
 	}
 
 	method := http.MethodGet
@@ -73,7 +117,7 @@ func (c *Client) execute(ctx context.Context, job *Job, fail bool, pr *pingReque
 		method = http.MethodPost
 	}
 
-	endpoint, err := c.buildURL(job.token, fail, pr)
+	endpoint, err := c.buildURL(job.token, kind, pr)
 	if err != nil {
 		// A missing/unparsable base URL is a client misconfiguration — loud.
 		return PingResult{Err: err}, err
@@ -122,7 +166,9 @@ func (c *Client) attempt(ctx context.Context, method, endpoint string, body []by
 
 	req, err := http.NewRequestWithContext(attemptCtx, method, endpoint, reader)
 	if err != nil {
-		return PingResult{Err: fmt.Errorf("ionhour: failed to build ping request: %w", err)}
+		// A parse failure here can echo the endpoint (and thus the token) back in
+		// its message, so scrub before it can reach a logger or PingResult.Err.
+		return scrubbedTransportError("ionhour: failed to build ping request", err, job)
 	}
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
@@ -135,9 +181,12 @@ func (c *Client) attempt(ctx context.Context, method, endpoint string, body []by
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		// Network error, per-attempt timeout, or cancellation: Status stays 0,
-		// which isRetryable treats as a transport failure. Wrapping with %w keeps
-		// errors.Is/As chains (e.g. against context.Canceled) intact.
-		return PingResult{Err: fmt.Errorf("ionhour: ping request failed: %w", err)}
+		// which isRetryable treats as a transport failure. net/http's *url.Error
+		// embeds the request URL — and thus the job token — in its message, so it
+		// is scrubbed before it can reach a logger or PingResult.Err. The original
+		// error stays wrapped, keeping errors.Is/As chains (e.g. against
+		// context.Canceled) intact.
+		return scrubbedTransportError("ionhour: ping request failed", err, job)
 	}
 	defer resp.Body.Close()
 	// Drain the body so the connection can be reused by keep-alive.
@@ -178,7 +227,7 @@ func sleepCtx(ctx context.Context, d time.Duration) bool {
 }
 
 // buildURL assembles the ping endpoint and query string.
-func (c *Client) buildURL(token string, fail bool, pr *pingRequest) (string, error) {
+func (c *Client) buildURL(token string, kind pingKind, pr *pingRequest) (string, error) {
 	base := strings.TrimRight(c.baseURL, "/")
 	if base == "" {
 		return "", &ConfigError{Reason: "base URL is empty"}
@@ -188,9 +237,7 @@ func (c *Client) buildURL(token string, fail bool, pr *pingRequest) (string, err
 	b.WriteString(base)
 	b.WriteString("/signals/ping/")
 	b.WriteString(url.PathEscape(token))
-	if fail {
-		b.WriteString("/fail")
-	}
+	b.WriteString(kind.pathSuffix())
 
 	query := url.Values{}
 	if pr.rid != "" {
@@ -199,6 +246,15 @@ func (c *Client) buildURL(token string, fail bool, pr *pingRequest) (string, err
 	if pr.duration != nil {
 		query.Set("duration", strconv.FormatInt(durationMillis(*pr.duration), 10))
 	}
+	if pr.host != nil {
+		query.Set("host", *pr.host)
+	}
+	if pr.env != nil {
+		query.Set("env", *pr.env)
+	}
+	if pr.exitCode != nil {
+		query.Set("exit_code", strconv.Itoa(*pr.exitCode))
+	}
 	if encoded := query.Encode(); encoded != "" {
 		b.WriteString("?")
 		b.WriteString(encoded)
@@ -206,7 +262,8 @@ func (c *Client) buildURL(token string, fail bool, pr *pingRequest) (string, err
 
 	full := b.String()
 	if _, err := url.ParseRequestURI(full); err != nil {
-		return "", &ConfigError{Reason: "invalid base URL: " + err.Error()}
+		// The parse error echoes the full URL, which carries the token — scrub it.
+		return "", &ConfigError{Reason: "invalid base URL: " + scrubSecrets(err.Error(), token, "")}
 	}
 	return full, nil
 }
@@ -221,16 +278,12 @@ func durationMillis(d time.Duration) int64 {
 
 // logError emits a single error-level log line for a failed ping when a logger
 // is configured. The job token is intentionally not logged (it is a credential).
-func (c *Client) logError(fail bool, err error) {
+func (c *Client) logError(kind pingKind, err error) {
 	if c.logger == nil || err == nil {
 		return
 	}
-	action := "success"
-	if fail {
-		action = "fail"
-	}
 	c.logger.Error("ionhour: heartbeat ping failed",
-		slog.String("action", action),
+		slog.String("action", kind.action()),
 		slog.String("error", err.Error()),
 	)
 }

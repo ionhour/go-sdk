@@ -79,6 +79,27 @@ func TestNewClientRetriesClamped(t *testing.T) {
 	}
 }
 
+func TestDefaultBackoffClamp(t *testing.T) {
+	// The schedule is 1s before the second attempt, then 2s clamped for every
+	// subsequent wait — never linear (attempt*1s) or exponential growth. The
+	// attempt=4 and attempt=7 rows assert the 4th-and-later waits stay at 2s.
+	cases := []struct {
+		attempt int
+		want    time.Duration
+	}{
+		{1, 1 * time.Second},
+		{2, 2 * time.Second},
+		{3, 2 * time.Second},
+		{4, 2 * time.Second},
+		{7, 2 * time.Second},
+	}
+	for _, tc := range cases {
+		if got := defaultBackoff(tc.attempt); got != tc.want {
+			t.Errorf("defaultBackoff(%d) = %v, want %v", tc.attempt, got, tc.want)
+		}
+	}
+}
+
 func TestWithUserAgentEmptyIgnored(t *testing.T) {
 	c := NewClient(WithUserAgent(""))
 	if c.userAgent != "ionhour-go/0.1.0" {

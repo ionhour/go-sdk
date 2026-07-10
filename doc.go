@@ -42,5 +42,13 @@
 //		return doWork(ctx)
 //	})
 //
+// When the wrapped work returns a value, use the package-level generic
+// [RunValue] instead of threading the result through an outer closure variable:
+//
+//	n, err := ionhour.RunValue(context.Background(), job, func(ctx context.Context) (int, error) {
+//		return importRows(ctx)
+//	})
+//	_ = n
+//
 // See https://docs.ionhour.com for the full documentation.
 package ionhour
