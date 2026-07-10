@@ -1,0 +1,23 @@
+# Binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+bin/
+
+# Test and coverage artifacts
+*.test
+*.out
+coverage.txt
+coverage.html
+
+# Go workspace / vendor
+go.work
+go.work.sum
+vendor/
+
+# Editor / OS
+.idea/
+.vscode/
+.DS_Store
