@@ -1,25 +1,30 @@
 package main
 
 import (
-	"encoding/json"
 	"net/http"
 	"strconv"
 	"strings"
 	"testing"
 )
 
-// execExitCode decodes the {"exit_code": N} payload from a recorded ping body.
-func execExitCode(t *testing.T, body []byte) int {
+// execExitCode reads the exit_code query parameter from a recorded ping. The
+// contract (sdks/CONTRACT.md) carries the exit status as `exit_code=` in the
+// query string, never in a JSON body — a body would turn the ping into a POST
+// and count against the 10 KiB payload cap for no benefit.
+func execExitCode(t *testing.T, got capturedRequest) int {
 	t.Helper()
-	var parsed map[string]any
-	if err := json.Unmarshal(body, &parsed); err != nil {
-		t.Fatalf("ping body is not JSON: %v (%q)", err, body)
+	if len(got.body) != 0 {
+		t.Fatalf("exec ping must not carry a body (exit_code is a query param), got %q", got.body)
 	}
-	raw, ok := parsed["exit_code"].(float64) // JSON numbers decode to float64
-	if !ok {
-		t.Fatalf("ping body has no numeric exit_code: %q", body)
+	raw := got.query.Get("exit_code")
+	if raw == "" {
+		t.Fatalf("ping has no exit_code query parameter: %v", got.query)
 	}
-	return int(raw)
+	code, err := strconv.Atoi(raw)
+	if err != nil {
+		t.Fatalf("exit_code %q is not an integer: %v", raw, err)
+	}
+	return code
 }
 
 func TestExecSuccessPingsSuccessWithDurationAndExitCodeZero(t *testing.T) {
@@ -31,14 +36,14 @@ func TestExecSuccessPingsSuccessWithDurationAndExitCodeZero(t *testing.T) {
 		t.Fatalf("exit code = %d, want 0 (command succeeded); stderr=%q", code, stderr)
 	}
 	got := rec.last(t)
-	if got.method != http.MethodPost {
-		t.Errorf("method = %s, want POST (exec always carries an exit_code payload)", got.method)
+	if got.method != http.MethodGet {
+		t.Errorf("method = %s, want GET (exit_code travels in the query string, not a body)", got.method)
 	}
 	if got.path != "/signals/ping/tok" {
 		t.Errorf("path = %s, want /signals/ping/tok (success has no /fail)", got.path)
 	}
-	if ec := execExitCode(t, got.body); ec != 0 {
-		t.Errorf("exit_code payload = %d, want 0", ec)
+	if ec := execExitCode(t, got); ec != 0 {
+		t.Errorf("exit_code query param = %d, want 0", ec)
 	}
 	dur := got.query.Get("duration")
 	if dur == "" {
@@ -57,14 +62,14 @@ func TestExecFailurePingsFailWithExitCode(t *testing.T) {
 		t.Fatalf("exit code = %d, want 7 (command's own exit passthrough); stderr=%q", code, stderr)
 	}
 	got := rec.last(t)
-	if got.method != http.MethodPost {
-		t.Errorf("method = %s, want POST", got.method)
+	if got.method != http.MethodGet {
+		t.Errorf("method = %s, want GET (no payload on exec pings)", got.method)
 	}
 	if got.path != "/signals/ping/tok/fail" {
 		t.Errorf("path = %s, want /signals/ping/tok/fail", got.path)
 	}
-	if ec := execExitCode(t, got.body); ec != 7 {
-		t.Errorf("exit_code payload = %d, want 7", ec)
+	if ec := execExitCode(t, got); ec != 7 {
+		t.Errorf("exit_code query param = %d, want 7", ec)
 	}
 	if got.query.Get("duration") == "" {
 		t.Error("expected a duration query parameter on the fail ping")
@@ -84,8 +89,8 @@ func TestExecSignaledCommandReports128PlusSignal(t *testing.T) {
 	if got.path != "/signals/ping/tok/fail" {
 		t.Errorf("path = %s, want /signals/ping/tok/fail (signaled command is a failure)", got.path)
 	}
-	if ec := execExitCode(t, got.body); ec != 143 {
-		t.Errorf("exit_code payload = %d, want 143", ec)
+	if ec := execExitCode(t, got); ec != 143 {
+		t.Errorf("exit_code query param = %d, want 143", ec)
 	}
 }
 
@@ -104,8 +109,8 @@ func TestExecCommandNotFoundReports127AndPingsFail(t *testing.T) {
 	if got.path != "/signals/ping/tok/fail" {
 		t.Errorf("path = %s, want /signals/ping/tok/fail (a command that can't start is a failure)", got.path)
 	}
-	if ec := execExitCode(t, got.body); ec != 127 {
-		t.Errorf("exit_code payload = %d, want 127", ec)
+	if ec := execExitCode(t, got); ec != 127 {
+		t.Errorf("exit_code query param = %d, want 127", ec)
 	}
 }
 

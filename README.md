@@ -309,7 +309,17 @@ docker run --rm -v "$PWD/sdks/go":/src -w /src golang:1.22 sh -c "gofmt -l . && 
 
 ## Documentation
 
-Full docs: [docs.ionhour.com](https://docs.ionhour.com).
+## Base URL
+
+The default base URL is `https://signal.ionhour.com/api`, the dedicated
+heartbeat-ingest host. Set `IONHOUR_BASE_URL=https://api.ionhour.com/api` (or
+`WithBaseURL` / `--base-url`) to send pings through the main API host instead;
+it serves every ping route (`/ping/{token}`, `/fail`, `/start`) and is the right
+choice when you also use failure or start pings and your deployment has not yet
+enabled them on the signal host.
+
+Full docs: [docs.ionhour.com](https://docs.ionhour.com). Machine-readable index
+for AI agents: <https://ionhour.com/llms.txt>.
 
 ## License
 

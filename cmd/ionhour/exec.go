@@ -18,7 +18,8 @@ import (
 // runExec implements `ionhour exec <token> -- <command> [args...]`. It runs the
 // command with the CLI's own stdin/stdout/stderr inherited (so cron mail and
 // logging are unchanged), times it, and pings success on exit 0 or fail on a
-// non-zero exit — always carrying the duration and an {"exit_code": N} payload.
+// non-zero exit — always carrying the duration and the exit status as the
+// `exit_code=` query parameter the SDK contract defines (sdks/CONTRACT.md).
 //
 // The CLI's own exit code is ALWAYS the wrapped command's, so monitoring can
 // never break the job. A ping that fails to send is a stderr warning only.
@@ -102,11 +103,14 @@ func runExec(args []string, stderr io.Writer) int {
 }
 
 // execPingOptions assembles the ping options for an exec ping: the shared
-// run-correlation id (if any) plus the measured duration and exit-code payload.
+// run-correlation id (if any) plus the measured duration and the exit code.
+// Both travel as query parameters (`duration=`, `exit_code=`) per the SDK
+// contract; the ping body stays empty so the request is a plain GET.
+// Shell-convention codes (126, 127, 128+signal) all fit the 0–255 range.
 func execPingOptions(g *globalFlags, d time.Duration, exitCode int) []ionhour.PingOption {
 	return g.pingOptions(
 		ionhour.WithDuration(d),
-		ionhour.WithPayload(map[string]any{"exit_code": exitCode}),
+		ionhour.WithExitCode(exitCode),
 	)
 }
 

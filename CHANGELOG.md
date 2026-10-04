@@ -9,6 +9,10 @@ Initial release.
 
 ### Added
 
+- `ionhour exec` reports the wrapped command's exit status as the `exit_code=`
+  query parameter defined by the SDK contract (not as a JSON body), so exec pings
+  are plain GETs and never touch the 10 KiB payload cap.
+
 - `NewClient` with functional options: `WithAPIKey`, `WithBaseURL`,
   `WithHTTPClient`, `WithTimeout`, `WithRetries`, `WithUserAgent`, `WithLogger`.
   Environment fallbacks (`IONHOUR_API_KEY`, `IONHOUR_BASE_URL`) applied when the
