@@ -3,7 +3,7 @@
 // and Ionhour learns when the job ran, how long it took, and whether it failed —
 // or send a bare `ping`/`fail` from a shell script.
 //
-// It is a thin wrapper over the Go SDK ([github.com/ionhour/ionhour-go]); every
+// It is a thin wrapper over the Go SDK ([github.com/ionhour/go-sdk]); every
 // ping goes through the same client, retries, and credential handling.
 //
 // Usage:
@@ -25,7 +25,7 @@ import (
 	"os"
 	"time"
 
-	ionhour "github.com/ionhour/ionhour-go"
+	ionhour "github.com/ionhour/go-sdk"
 )
 
 func main() {

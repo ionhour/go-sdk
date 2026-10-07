@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	ionhour "github.com/ionhour/ionhour-go"
+	ionhour "github.com/ionhour/go-sdk"
 )
 
 func TestPingSendsSuccessGet(t *testing.T) {

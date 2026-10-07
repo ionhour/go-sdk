@@ -12,7 +12,7 @@ import (
 	"syscall"
 	"time"
 
-	ionhour "github.com/ionhour/ionhour-go"
+	ionhour "github.com/ionhour/go-sdk"
 )
 
 // runExec implements `ionhour exec <token> -- <command> [args...]`. It runs the

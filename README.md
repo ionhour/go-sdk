@@ -1,4 +1,4 @@
-# ionhour-go
+# Ionhour Go SDK
 
 The official Go SDK for [Ionhour](https://ionhour.com) heartbeat monitoring.
 
@@ -9,7 +9,7 @@ Zero third-party dependencies; standard library only.
 ## Install
 
 ```bash
-go get github.com/ionhour/ionhour-go
+go get github.com/ionhour/go-sdk
 ```
 
 Requires Go 1.21 or newer.
@@ -36,7 +36,7 @@ package main
 import (
 	"context"
 
-	ionhour "github.com/ionhour/ionhour-go"
+	ionhour "github.com/ionhour/go-sdk"
 )
 
 func main() {
@@ -238,7 +238,7 @@ long it took, and whether it failed. The CLI is a thin wrapper over this SDK, so
 it inherits the same retries, timeouts, and credential handling.
 
 ```bash
-go install github.com/ionhour/ionhour-go/cmd/ionhour@latest
+go install github.com/ionhour/go-sdk/cmd/ionhour@latest
 ```
 
 The flagship is `exec`: it sends a **start** ping, runs your command with

@@ -1,3 +1,3 @@
-module github.com/ionhour/ionhour-go
+module github.com/ionhour/go-sdk
 
 go 1.21

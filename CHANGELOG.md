@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to `ionhour-go` are documented here. This project adheres
+All notable changes to the Ionhour Go SDK (`github.com/ionhour/go-sdk`) are documented here. This project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [0.1.0] - 2026-07-10
@@ -60,7 +60,7 @@ Initial release.
   reaching the automatic logger or `PingResult.Err` has the token (raw and
   URL-encoded) and API key replaced with a short redacted prefix. The underlying
   error stays wrapped, so `errors.Is` / `errors.As` chains are unaffected.
-- `ionhour` CLI (`cmd/ionhour`, `go install github.com/ionhour/ionhour-go/cmd/ionhour@latest`)
+- `ionhour` CLI (`cmd/ionhour`, `go install github.com/ionhour/go-sdk/cmd/ionhour@latest`)
   for monitoring an existing crontab with zero code changes. `ionhour exec
   <token> -- <command>` sends a start ping, runs the command with
   stdin/stdout/stderr inherited, times it, and pings success (exit 0) or fail
@@ -79,4 +79,4 @@ Initial release.
   ping URL) are scrubbed before reaching stderr. Built entirely on the SDK client
   — no reimplemented ping path, zero third-party dependencies.
 
-[0.1.0]: https://github.com/ionhour/ionhour-go/releases/tag/v0.1.0
+[0.1.0]: https://github.com/ionhour/go-sdk/releases/tag/v0.1.0

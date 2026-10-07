@@ -8,7 +8,7 @@ import (
 	"net/url"
 	"strings"
 
-	ionhour "github.com/ionhour/ionhour-go"
+	ionhour "github.com/ionhour/go-sdk"
 )
 
 // runPing implements the bare `ionhour ping <token>` and `ionhour fail <token>`
