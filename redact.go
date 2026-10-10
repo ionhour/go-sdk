@@ -8,9 +8,9 @@ import (
 
 // redactToken returns the short, non-secret prefix of a credential that the
 // Ionhour SDK contract permits in an automatic log for attribution: at most 8
-// runes, and never more than half the value. A full token or API key is
-// replaced with this form (plus an ellipsis marking the truncation) in any
-// error string that may be logged or exposed via PingResult.Err.
+// runes, and never more than half the value. A full token is replaced with
+// this form (plus an ellipsis marking the truncation) in any error string that
+// may be logged or exposed via PingResult.Err.
 func redactToken(secret string) string {
 	runes := []rune(secret)
 	n := len(runes) / 2
@@ -20,28 +20,25 @@ func redactToken(secret string) string {
 	return string(runes[:n]) + "…"
 }
 
-// scrubSecrets removes the job token and API key from a message that may be
-// logged or returned to the caller. net/http's *url.Error embeds the request
-// URL — which carries the token in its path — so both the raw token and its
+// scrubSecrets removes the job token from a message that may be logged or
+// returned to the caller. net/http's *url.Error embeds the request URL — which
+// carries the token in its path — so both the raw token and its
 // URL-path-escaped form (how it actually appears in the URL) are replaced with
-// the redacted prefix. The API key never reaches the URL but is scrubbed too,
-// defensively. It is a no-op when there is nothing to replace.
-func scrubSecrets(msg, token, apiKey string) string {
-	if token != "" {
-		redacted := redactToken(token)
-		msg = strings.ReplaceAll(msg, token, redacted)
-		if escaped := url.PathEscape(token); escaped != token {
-			msg = strings.ReplaceAll(msg, escaped, redacted)
-		}
+// the redacted prefix. It is a no-op when there is nothing to replace.
+func scrubSecrets(msg, token string) string {
+	if token == "" {
+		return msg
 	}
-	if apiKey != "" {
-		msg = strings.ReplaceAll(msg, apiKey, redactToken(apiKey))
+	redacted := redactToken(token)
+	msg = strings.ReplaceAll(msg, token, redacted)
+	if escaped := url.PathEscape(token); escaped != token {
+		msg = strings.ReplaceAll(msg, escaped, redacted)
 	}
 	return msg
 }
 
 // scrubbedError wraps a transport error so its message can be logged or exposed
-// via PingResult.Err without leaking the job token (or API key) that a net/http
+// via PingResult.Err without leaking the job token that a net/http
 // *url.Error embeds in the request URL. Error returns the scrubbed message;
 // Unwrap preserves the original error so errors.Is / errors.As chains (for
 // example against context.Canceled or context.DeadlineExceeded) keep working.
@@ -60,12 +57,12 @@ func (e *scrubbedError) Error() string { return e.msg }
 func (e *scrubbedError) Unwrap() error { return e.err }
 
 // scrubbedTransportError wraps err under the given "ionhour: …" context and
-// returns a PingResult whose Err has the job's token and API key redacted from
+// returns a PingResult whose Err has the job's token redacted from
 // its message, while keeping the original error reachable for errors.Is/As.
 func scrubbedTransportError(context string, err error, job *Job) PingResult {
 	wrapped := fmt.Errorf("%s: %w", context, err)
 	return PingResult{Err: &scrubbedError{
-		msg: scrubSecrets(wrapped.Error(), job.token, job.effectiveAPIKey()),
+		msg: scrubSecrets(wrapped.Error(), job.token),
 		err: wrapped,
 	}}
 }

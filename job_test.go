@@ -60,7 +60,6 @@ func TestRegisterJobWhitespaceErrorType(t *testing.T) {
 }
 
 func TestPackageLevelRegisterJob(t *testing.T) {
-	t.Setenv(envAPIKey, "")
 	t.Setenv(envBaseURL, "")
 
 	// The default client freezes the environment on first use; reset it so this
@@ -69,23 +68,15 @@ func TestPackageLevelRegisterJob(t *testing.T) {
 	resetDefaultClientForTest()
 	t.Cleanup(resetDefaultClientForTest)
 
-	unprotected, err := RegisterJob("tok", "")
+	job, err := RegisterJob("tok")
 	if err != nil {
-		t.Fatalf("RegisterJob unprotected: %v", err)
+		t.Fatalf("RegisterJob: %v", err)
 	}
-	if got := unprotected.effectiveAPIKey(); got != "" {
-		t.Errorf("unprotected key = %q, want empty", got)
+	if got := job.Token(); got != "tok" {
+		t.Errorf("token = %q, want tok", got)
 	}
 
-	protected, err := RegisterJob("tok", "my-key")
-	if err != nil {
-		t.Fatalf("RegisterJob protected: %v", err)
-	}
-	if got := protected.effectiveAPIKey(); got != "my-key" {
-		t.Errorf("protected key = %q, want my-key", got)
-	}
-
-	if _, err := RegisterJob("", ""); !errors.Is(err, ErrEmptyToken) {
+	if _, err := RegisterJob(""); !errors.Is(err, ErrEmptyToken) {
 		t.Fatalf("empty token error = %v, want ErrEmptyToken", err)
 	}
 }

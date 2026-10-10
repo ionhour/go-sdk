@@ -8,7 +8,6 @@ import (
 )
 
 func TestNewClientDefaults(t *testing.T) {
-	t.Setenv(envAPIKey, "")
 	t.Setenv(envBaseURL, "")
 
 	c := NewClient()
@@ -25,40 +24,28 @@ func TestNewClientDefaults(t *testing.T) {
 	if c.userAgent != "ionhour-go/0.1.0" {
 		t.Errorf("userAgent = %q, want %q", c.userAgent, "ionhour-go/0.1.0")
 	}
-	if c.apiKey != "" {
-		t.Errorf("apiKey = %q, want empty", c.apiKey)
-	}
 	if c.httpClient == nil {
 		t.Error("httpClient is nil")
 	}
 }
 
 func TestNewClientEnvFallback(t *testing.T) {
-	t.Setenv(envAPIKey, "env-key")
 	t.Setenv(envBaseURL, "https://env.example/api")
 
 	c := NewClient()
-	if c.apiKey != "env-key" {
-		t.Errorf("apiKey = %q, want env-key", c.apiKey)
-	}
 	if c.baseURL != "https://env.example/api" {
 		t.Errorf("baseURL = %q, want env value", c.baseURL)
 	}
 }
 
 func TestNewClientOptionsOverrideEnv(t *testing.T) {
-	t.Setenv(envAPIKey, "env-key")
 	t.Setenv(envBaseURL, "https://env.example/api")
 
 	c := NewClient(
-		WithAPIKey("opt-key"),
 		WithBaseURL("https://opt.example"),
 		WithTimeout(3*time.Second),
 		WithUserAgent("custom/9.9"),
 	)
-	if c.apiKey != "opt-key" {
-		t.Errorf("apiKey = %q, want opt-key", c.apiKey)
-	}
 	if c.baseURL != "https://opt.example" {
 		t.Errorf("baseURL = %q, want opt value", c.baseURL)
 	}
@@ -114,70 +101,15 @@ func TestWithHTTPClientNilIgnored(t *testing.T) {
 	}
 }
 
-func TestEffectiveAPIKeyPrecedence(t *testing.T) {
-	t.Setenv(envAPIKey, "")
-	t.Setenv(envBaseURL, "")
-
-	c := NewClient(WithAPIKey("client-key"))
-
-	clientOnly := mustRegister(t, c, "tok")
-	if got := clientOnly.effectiveAPIKey(); got != "client-key" {
-		t.Errorf("client-only key = %q, want client-key", got)
-	}
-
-	perJob := mustRegister(t, c, "tok", WithJobAPIKey("job-key"))
-	if got := perJob.effectiveAPIKey(); got != "job-key" {
-		t.Errorf("per-job key = %q, want job-key", got)
-	}
-
-	noKey := mustRegister(t, NewClient(), "tok")
-	if got := noKey.effectiveAPIKey(); got != "" {
-		t.Errorf("no key = %q, want empty", got)
-	}
-}
-
-func TestAPIKeyTrimmedFromOptionAndEnv(t *testing.T) {
-	t.Setenv(envBaseURL, "")
-
-	// Option value is trimmed.
-	t.Setenv(envAPIKey, "")
-	if c := NewClient(WithAPIKey("  ionh_opt\n")); c.apiKey != "ionh_opt" {
-		t.Errorf("option apiKey = %q, want ionh_opt", c.apiKey)
-	}
-
-	// Whitespace-only option is treated as absent, so the env fallback applies.
-	t.Setenv(envAPIKey, "ionh_env")
-	if c := NewClient(WithAPIKey("   ")); c.apiKey != "ionh_env" {
-		t.Errorf("whitespace option should fall back to env, got %q", c.apiKey)
-	}
-
-	// Env value is trimmed.
-	t.Setenv(envAPIKey, "\tionh_env2 ")
-	if c := NewClient(); c.apiKey != "ionh_env2" {
-		t.Errorf("env apiKey = %q, want ionh_env2", c.apiKey)
-	}
-
-	// Whitespace-only env is treated as absent.
-	t.Setenv(envAPIKey, "  \n")
-	if c := NewClient(); c.apiKey != "" {
-		t.Errorf("whitespace-only env apiKey = %q, want empty", c.apiKey)
-	}
-}
-
 func TestJobStringRedactsCredentials(t *testing.T) {
-	t.Setenv(envAPIKey, "")
 	t.Setenv(envBaseURL, "")
 
-	c := NewClient(WithAPIKey("ionh_super_secret"))
-	job := mustRegister(t, c, "raw-token-value", WithJobAPIKey("ionh_job_secret"))
+	job := mustRegister(t, NewClient(), "raw-token-value")
 
 	for _, verb := range []string{"%v", "%+v", "%s"} {
 		out := fmt.Sprintf(verb, job)
 		if strings.Contains(out, "raw-token-value") {
 			t.Errorf("%s leaked the token: %q", verb, out)
-		}
-		if strings.Contains(out, "ionh_job_secret") || strings.Contains(out, "ionh_super_secret") {
-			t.Errorf("%s leaked an api key: %q", verb, out)
 		}
 		if !strings.Contains(out, "redacted") {
 			t.Errorf("%s should mark the redaction: %q", verb, out)
@@ -185,16 +117,15 @@ func TestJobStringRedactsCredentials(t *testing.T) {
 	}
 }
 
-func TestClientStringRedactsAPIKey(t *testing.T) {
-	t.Setenv(envAPIKey, "")
+func TestClientStringShowsSettingsWithoutAPIKey(t *testing.T) {
 	t.Setenv(envBaseURL, "")
 
-	c := NewClient(WithAPIKey("ionh_super_secret"), WithBaseURL("https://x.test/api"))
+	c := NewClient(WithBaseURL("https://x.test/api"))
 
 	for _, verb := range []string{"%v", "%+v", "%s"} {
 		out := fmt.Sprintf(verb, c)
-		if strings.Contains(out, "ionh_super_secret") {
-			t.Errorf("%s leaked the api key: %q", verb, out)
+		if strings.Contains(out, "apiKey") {
+			t.Errorf("%s should not mention an api key (pings send none): %q", verb, out)
 		}
 		if !strings.Contains(out, "https://x.test/api") {
 			t.Errorf("%s should still show the non-sensitive base URL: %q", verb, out)

@@ -2,8 +2,8 @@
 
 The official Go SDK for [Ionhour](https://ionhour.com) heartbeat monitoring.
 
-Register **Jobs** (inbound heartbeat monitors) with two parameters — a job token
-and an optional API key — and report success or failure with a single call.
+Register **Jobs** (inbound heartbeat monitors) by their ping token and report
+success or failure with a single call.
 Zero third-party dependencies; standard library only.
 
 ## Install
@@ -25,10 +25,9 @@ curl -m 10 --retry 2 https://signal.ionhour.com/api/signals/ping/your-job-token
 ```
 
 The SDK sends that **same ping**, with the retries, timeouts, and failure
-signaling handled for you. The shortest path is the package-level,
-two-parameter registration backed by a default client that reads
-`IONHOUR_API_KEY` / `IONHOUR_BASE_URL` from the environment — three meaningful
-lines, no config files:
+signaling handled for you. The shortest path is the package-level registration
+backed by a default client that reads `IONHOUR_BASE_URL` from the environment —
+three meaningful lines, no config files:
 
 ```go
 package main
@@ -40,9 +39,8 @@ import (
 )
 
 func main() {
-	// Second parameter is the API key. Pass "" for an unprotected job — the
-	// token alone is the credential.
-	job, _ := ionhour.RegisterJob("your-job-token", "")
+	// The token alone is the credential; pings send no Authorization header.
+	job, _ := ionhour.RegisterJob("your-job-token")
 	job.Success(context.Background())
 }
 ```
@@ -55,7 +53,7 @@ lives in the returned `PingResult.OK`. For fire-and-forget monitoring, ignore
 both:
 
 ```go
-job, err := ionhour.RegisterJob("your-job-token", "")
+job, err := ionhour.RegisterJob("your-job-token")
 if err != nil {
 	panic(err) // registration only fails on a malformed token
 }
@@ -64,16 +62,9 @@ _ = res
 _ = err
 ```
 
-For a **protected** job, pass a workspace API key (`ionh_...`) as the second
-argument; the SDK sends it as `Authorization: Bearer <key>` on every ping:
-
-```go
-job, _ := ionhour.RegisterJob("your-job-token", "ionh_live_...")
-```
-
 > **Env freeze.** The package-level default client is created once, on first use,
-> and captures `IONHOUR_API_KEY` / `IONHOUR_BASE_URL` at that moment for the
-> lifetime of the process. Changing those variables later has no effect on it —
+> and captures `IONHOUR_BASE_URL` at that moment for the lifetime of the
+> process. Changing that variable later has no effect on it —
 > build an explicit client with [`NewClient`](#configuring-a-client) if you need
 > the environment re-read.
 
@@ -149,7 +140,6 @@ Build a client with functional options when you need more than the defaults:
 
 ```go
 client := ionhour.NewClient(
-	ionhour.WithAPIKey("ionh_live_..."),
 	ionhour.WithTimeout(5*time.Second),
 	ionhour.WithRetries(4),
 	ionhour.WithLogger(slog.Default()),
@@ -162,18 +152,11 @@ if _, err := job.Success(context.Background(), ionhour.WithRID("run-42")); err !
 }
 ```
 
-A per-job key overrides the client key for a single job:
-
-```go
-job, _ := client.RegisterJob("protected-token", ionhour.WithJobAPIKey("ionh_live_..."))
-```
-
 ### Client options
 
 | Option              | Default                          | Notes                                                                 |
 |---------------------|----------------------------------|-----------------------------------------------------------------------|
 | `WithBaseURL`       | `https://signal.ionhour.com/api` | Env fallback: `IONHOUR_BASE_URL`.                                     |
-| `WithAPIKey`        | none                             | Env fallback: `IONHOUR_API_KEY`. Global default; a per-job key wins.  |
 | `WithTimeout`       | `10s`                            | Per attempt, applied via context.                                    |
 | `WithRetries`       | `3`                              | **Total** attempts. Backoff 1s then 2s, clamped (every later wait stays 2s — never linear or exponential). Retries only on network errors, 429, and 5xx — never other 4xx. |
 | `WithUserAgent`     | `ionhour-go/0.1.0`               | Empty values are ignored.                                            |
@@ -215,20 +198,14 @@ Monitoring must never take down the host application:
   `RegisterJob`, and an oversized or non-serializable payload is returned as the
   `error` (and also mirrored in `PingResult.Err`) before any request is sent.
 
-You only need an API key for **protected** jobs. For an unprotected job the
-token is the credential — pass `""` (package-level) or omit `WithAPIKey`.
-
 ## Credential handling
 
-- **Whitespace trimming.** API keys (from `WithAPIKey`, `WithJobAPIKey`,
-  `IONHOUR_API_KEY`, or the package-level `RegisterJob` argument) are trimmed of
-  surrounding whitespace, and a whitespace-only value is treated as absent. A
-  stray newline from a `.env` file can never turn into a malformed `Bearer`
-  header that fails as a silent `401`.
-- **Redaction in logs.** `Client` and `Job` implement `fmt.Stringer` and redact
-  the token and API key, so logging one with `%v` or `%+v` will not leak the
-  credential. Note the Go limitation: `%#v` bypasses `Stringer` and still prints
-  the unexported fields — avoid `%#v` on a `Client` or `Job`.
+- **The token is the only credential.** Pings send no `Authorization` header,
+  and `IONHOUR_API_KEY` is not read.
+- **Redaction in logs.** `Job` implements `fmt.Stringer` and redacts the token,
+  so logging one with `%v` or `%+v` will not leak the credential. Note the Go
+  limitation: `%#v` bypasses `Stringer` and still prints the unexported fields —
+  avoid `%#v` on a `Job`.
 
 ## CLI
 
@@ -244,7 +221,8 @@ go install github.com/ionhour/go-sdk/cmd/ionhour@latest
 The flagship is `exec`: it sends a **start** ping, runs your command with
 stdin/stdout/stderr inherited (so cron mail and logs are unchanged), times it,
 and pings **success** on exit 0 or **fail** on any non-zero exit — each with the
-duration and an `{"exit_code": N}` payload. The start and terminal pings share
+duration and the exit status as the `exit_code` query parameter (not a JSON
+payload), so exec pings are plain GETs. The start and terminal pings share
 one run-correlation id (`--rid` if given, otherwise generated), so the run
 correlates end-to-end; pass `--no-start` to skip the start ping. Turning a
 monitored cron line on is a one-token diff:
@@ -284,7 +262,6 @@ Flags go **before** the token (e.g. `ionhour exec --rid run-42 <token> -- ...`).
 
 | Flag         | Default                  | Notes                                                        |
 |--------------|--------------------------|--------------------------------------------------------------|
-| `--api-key`  | env `IONHOUR_API_KEY`    | Workspace API key for protected jobs (`Authorization: Bearer`). |
 | `--base-url` | env `IONHOUR_BASE_URL`   | Ingestion base URL. Falls back to the default endpoint.      |
 | `--timeout`  | `10s`                    | Per-ping-attempt timeout.                                    |
 | `--rid`      | none                     | Run-correlation id, sent as the `rid` query parameter. Shared by exec's start + terminal pings. |

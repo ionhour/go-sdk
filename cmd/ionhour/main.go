@@ -63,11 +63,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 	}
 }
 
-// globalFlags holds the options shared by exec, ping, and fail. Each is filled
-// from a --flag whose default is the matching environment variable, so an
-// explicit flag beats the environment, which beats the built-in default.
+// globalFlags holds the options shared by exec, ping, fail, and start. Each is
+// filled from a --flag whose default is the matching environment variable, so
+// an explicit flag beats the environment, which beats the built-in default.
 type globalFlags struct {
-	apiKey  string
 	baseURL string
 	timeout time.Duration
 	rid     string
@@ -79,7 +78,6 @@ type globalFlags struct {
 // help text show the resolved default and keeps precedence in one place.
 func registerGlobalFlags(fs *flag.FlagSet) *globalFlags {
 	g := &globalFlags{}
-	fs.StringVar(&g.apiKey, "api-key", os.Getenv("IONHOUR_API_KEY"), "Ionhour workspace API key (env IONHOUR_API_KEY)")
 	fs.StringVar(&g.baseURL, "base-url", os.Getenv("IONHOUR_BASE_URL"), "Ionhour ingestion base URL (env IONHOUR_BASE_URL)")
 	fs.DurationVar(&g.timeout, "timeout", ionhour.DefaultTimeout, "per-attempt ping timeout")
 	fs.StringVar(&g.rid, "rid", "", "run correlation id (rid query parameter)")
@@ -92,9 +90,6 @@ func registerGlobalFlags(fs *flag.FlagSet) *globalFlags {
 // instead of clobbering it.
 func (g *globalFlags) newClient() *ionhour.Client {
 	opts := []ionhour.ClientOption{ionhour.WithTimeout(g.timeout)}
-	if g.apiKey != "" {
-		opts = append(opts, ionhour.WithAPIKey(g.apiKey))
-	}
 	if g.baseURL != "" {
 		opts = append(opts, ionhour.WithBaseURL(g.baseURL))
 	}
@@ -126,7 +121,6 @@ exec sends a start ping before the command and the terminal ping after it,
 sharing one run-correlation id (--rid if given, otherwise generated).
 
 Flags (given before the token, on exec/ping/fail/start):
-  --api-key    Ionhour workspace API key   (env IONHOUR_API_KEY)
   --base-url   Ingestion base URL          (env IONHOUR_BASE_URL)
   --timeout    Per-attempt ping timeout    (default 10s)
   --rid        Run correlation id

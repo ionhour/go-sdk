@@ -174,9 +174,6 @@ func (c *Client) attempt(ctx context.Context, method, endpoint string, body []by
 		req.Header.Set("Content-Type", "application/json")
 	}
 	req.Header.Set("User-Agent", c.userAgent)
-	if key := job.effectiveAPIKey(); key != "" {
-		req.Header.Set("Authorization", "Bearer "+key)
-	}
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -263,7 +260,7 @@ func (c *Client) buildURL(token string, kind pingKind, pr *pingRequest) (string,
 	full := b.String()
 	if _, err := url.ParseRequestURI(full); err != nil {
 		// The parse error echoes the full URL, which carries the token — scrub it.
-		return "", &ConfigError{Reason: "invalid base URL: " + scrubSecrets(err.Error(), token, "")}
+		return "", &ConfigError{Reason: "invalid base URL: " + scrubSecrets(err.Error(), token)}
 	}
 	return full, nil
 }

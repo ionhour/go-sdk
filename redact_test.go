@@ -20,7 +20,6 @@ import (
 // reach the caller's logger or PingResult.Err in full — only a short attribution
 // prefix is permitted.
 func TestTransportErrorScrubsTokenFromLogAndResult(t *testing.T) {
-	t.Setenv(envAPIKey, "")
 	t.Setenv(envBaseURL, "")
 
 	// A distinctive token with no URL-reserved characters, so its raw form is
@@ -93,28 +92,22 @@ func TestTransportErrorScrubsTokenFromLogAndResult(t *testing.T) {
 
 // TestScrubSecretsRedactsRawAndEncodedToken exercises the URL-encoded branch:
 // a token with reserved characters appears path-escaped in a *url.Error, so both
-// the raw and escaped forms — and the API key — must be scrubbed.
+// the raw and escaped forms must be scrubbed.
 func TestScrubSecretsRedactsRawAndEncodedToken(t *testing.T) {
-	const (
-		token  = "tok#with/reserved?chars-and-more-length"
-		apiKey = "ionh_supersecretkey_value"
-	)
+	const token = "tok#with/reserved?chars-and-more-length"
 	escaped := url.PathEscape(token)
 	if escaped == token {
 		t.Fatal("test setup: token must contain reserved chars so its escaped form differs")
 	}
-	msg := fmt.Sprintf(`Get "https://signal.ionhour.com/api/signals/ping/%s?rid=r1": dial tcp; auth=%s`, escaped, apiKey)
+	msg := fmt.Sprintf(`Get "https://signal.ionhour.com/api/signals/ping/%s?rid=r1": dial tcp`, escaped)
 
-	got := scrubSecrets(msg, token, apiKey)
+	got := scrubSecrets(msg, token)
 
 	if strings.Contains(got, token) {
 		t.Errorf("raw token leaked: %q", got)
 	}
 	if strings.Contains(got, escaped) {
 		t.Errorf("URL-encoded token leaked: %q", got)
-	}
-	if strings.Contains(got, apiKey) {
-		t.Errorf("API key leaked: %q", got)
 	}
 	// Non-secret context is preserved so the message is still useful.
 	if !strings.Contains(got, "dial tcp") {

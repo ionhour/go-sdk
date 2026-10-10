@@ -1,10 +1,9 @@
 // Package ionhour is the official Go SDK for Ionhour heartbeat monitoring.
 //
-// Customers register Jobs (inbound heartbeat monitors) with two parameters: a
-// required job token and an optional workspace API key. The token is the
-// credential for unprotected jobs; the API key is only needed when the job is
-// protected. Once registered, a Job reports Success or Fail pings, or wraps a
-// unit of work with Run so timing and failure reporting happen automatically.
+// Customers register Jobs (inbound heartbeat monitors) with one parameter: the
+// job's ping token, which is the job's credential. Pings send no Authorization
+// header. Once registered, a Job reports Success or Fail pings, or wraps a unit
+// of work with Run so timing and failure reporting happen automatically.
 //
 // # Design guarantee
 //
@@ -19,11 +18,10 @@
 //
 // # Quick start
 //
-// The simplest install uses the package-level two-parameter registration and a
-// default client (which reads IONHOUR_API_KEY / IONHOUR_BASE_URL from the
-// environment):
+// The simplest install uses the package-level registration and a default
+// client (which reads IONHOUR_BASE_URL from the environment):
 //
-//	job, err := ionhour.RegisterJob("job-token", "")   // "" == unprotected
+//	job, err := ionhour.RegisterJob("job-token")
 //	if err != nil {
 //		log.Fatal(err)
 //	}
@@ -34,7 +32,6 @@
 // For full control, build a client with functional options:
 //
 //	client := ionhour.NewClient(
-//		ionhour.WithAPIKey("ionh_..."),
 //		ionhour.WithTimeout(5*time.Second),
 //	)
 //	job, _ := client.RegisterJob("job-token")

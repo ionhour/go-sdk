@@ -114,6 +114,25 @@ func TestExecCommandNotFoundReports127AndPingsFail(t *testing.T) {
 	}
 }
 
+// The --api-key flag was removed with the unenforced protected-jobs option. An
+// old crontab still passing it must fail loudly as a usage error, before the
+// command runs or any ping is sent, and the message must name the flag.
+func TestExecRejectsRemovedApiKeyFlag(t *testing.T) {
+	srv, rec := newRecordingServer(t, okHandler)
+
+	code, _, stderr := runCLI("exec", "--base-url", srv.URL, "--api-key", "k", "tok", "--", "true")
+
+	if code != 2 {
+		t.Fatalf("exit code = %d, want 2 (usage error)", code)
+	}
+	if rec.count() != 0 {
+		t.Errorf("recorded %d requests, want 0", rec.count())
+	}
+	if !strings.Contains(stderr, "api-key") {
+		t.Errorf("stderr should name the rejected flag: %q", stderr)
+	}
+}
+
 func TestExecMissingSeparator(t *testing.T) {
 	srv, rec := newRecordingServer(t, okHandler)
 

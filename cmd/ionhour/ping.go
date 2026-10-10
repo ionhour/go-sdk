@@ -98,7 +98,7 @@ func emitPing(ctx context.Context, job *ionhour.Job, fail bool, g *globalFlags, 
 	if fail {
 		kind = "failure"
 	}
-	warnUndelivered(stderr, g, job, kind, pingReason(res, err))
+	warnUndelivered(stderr, job, kind, pingReason(res, err))
 	return false
 }
 
@@ -112,7 +112,7 @@ func emitStartPing(ctx context.Context, job *ionhour.Job, g *globalFlags, opts [
 	if delivered || g.quiet {
 		return delivered
 	}
-	warnUndelivered(stderr, g, job, "start", pingReason(res, err))
+	warnUndelivered(stderr, job, "start", pingReason(res, err))
 	return false
 }
 
@@ -126,17 +126,17 @@ func pingReason(res ionhour.PingResult, err error) error {
 }
 
 // warnUndelivered writes the single stderr warning for an undelivered ping. The
-// message is scrubbed of the token and API key: transport errors from net/http
-// embed the request URL, which carries the token in its path.
-func warnUndelivered(stderr io.Writer, g *globalFlags, job *ionhour.Job, kind string, reason error) {
-	fmt.Fprintf(stderr, "ionhour: %s ping was not delivered: %s\n", kind, scrubSecrets(reason.Error(), job.Token(), g.apiKey))
+// message is scrubbed of the token: transport errors from net/http embed the
+// request URL, which carries the token in its path.
+func warnUndelivered(stderr io.Writer, job *ionhour.Job, kind string, reason error) {
+	fmt.Fprintf(stderr, "ionhour: %s ping was not delivered: %s\n", kind, scrubSecrets(reason.Error(), job.Token()))
 }
 
-// scrubSecrets removes the job token (raw and URL-path-escaped) and the API key
-// from a message before it is printed. A transport error's message includes the
-// ping URL — token and all — so printing it verbatim would leak the credential.
-func scrubSecrets(msg, token, apiKey string) string {
-	for _, secret := range []string{token, url.PathEscape(token), apiKey} {
+// scrubSecrets removes the job token (raw and URL-path-escaped) from a message
+// before it is printed. A transport error's message includes the ping URL —
+// token and all — so printing it verbatim would leak the credential.
+func scrubSecrets(msg, token string) string {
+	for _, secret := range []string{token, url.PathEscape(token)} {
 		if secret != "" {
 			msg = strings.ReplaceAll(msg, secret, "<redacted>")
 		}

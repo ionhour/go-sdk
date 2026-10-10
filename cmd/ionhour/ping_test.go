@@ -84,59 +84,27 @@ func TestPingMissingTokenIsUsageError(t *testing.T) {
 	}
 }
 
-// --- credential precedence: flag beats env beats default ---
+// --- credentials: the job token is the only one ---
 
-func TestApiKeyFromFlagSetsAuthHeader(t *testing.T) {
+// Protected jobs are not enforced yet (spec 027). A stray IONHOUR_API_KEY in
+// the shell must never turn into an Authorization header on any ping kind.
+func TestPingsNeverSendAuthHeader(t *testing.T) {
 	srv, rec := newRecordingServer(t, okHandler)
+	t.Setenv("IONHOUR_API_KEY", "ionh_stray_env_key")
 
-	code, _, _ := runCLI("ping", "--base-url", srv.URL, "--api-key", "ionh_flag", "tok")
-
-	if code != 0 {
-		t.Fatalf("exit code = %d, want 0", code)
+	for _, cmd := range []string{"ping", "fail", "start"} {
+		if code, _, stderr := runCLI(cmd, "--base-url", srv.URL, "tok"); code != 0 {
+			t.Fatalf("%s exit code = %d, want 0; stderr=%q", cmd, code, stderr)
+		}
 	}
-	if auth := rec.last(t).header.Get("Authorization"); auth != "Bearer ionh_flag" {
-		t.Errorf("Authorization = %q, want Bearer ionh_flag", auth)
+
+	if rec.count() != 3 {
+		t.Fatalf("recorded %d requests, want 3", rec.count())
 	}
-}
-
-func TestApiKeyFromEnvSetsAuthHeader(t *testing.T) {
-	srv, rec := newRecordingServer(t, okHandler)
-	t.Setenv("IONHOUR_API_KEY", "ionh_env")
-
-	code, _, _ := runCLI("ping", "--base-url", srv.URL, "tok")
-
-	if code != 0 {
-		t.Fatalf("exit code = %d, want 0", code)
-	}
-	if auth := rec.last(t).header.Get("Authorization"); auth != "Bearer ionh_env" {
-		t.Errorf("Authorization = %q, want Bearer ionh_env (env fallback)", auth)
-	}
-}
-
-func TestApiKeyFlagBeatsEnv(t *testing.T) {
-	srv, rec := newRecordingServer(t, okHandler)
-	t.Setenv("IONHOUR_API_KEY", "ionh_env")
-
-	code, _, _ := runCLI("ping", "--base-url", srv.URL, "--api-key", "ionh_flag", "tok")
-
-	if code != 0 {
-		t.Fatalf("exit code = %d, want 0", code)
-	}
-	if auth := rec.last(t).header.Get("Authorization"); auth != "Bearer ionh_flag" {
-		t.Errorf("Authorization = %q, want Bearer ionh_flag (flag overrides env)", auth)
-	}
-}
-
-func TestNoApiKeyOmitsAuthHeader(t *testing.T) {
-	srv, rec := newRecordingServer(t, okHandler)
-
-	code, _, _ := runCLI("ping", "--base-url", srv.URL, "tok")
-
-	if code != 0 {
-		t.Fatalf("exit code = %d, want 0", code)
-	}
-	if auth := rec.last(t).header.Get("Authorization"); auth != "" {
-		t.Errorf("Authorization = %q, want no header when no key is set", auth)
+	for i, got := range rec.all() {
+		if auth := got.header.Get("Authorization"); auth != "" {
+			t.Errorf("request %d Authorization = %q, want none", i, auth)
+		}
 	}
 }
 
@@ -160,7 +128,7 @@ func TestScrubSecretsRedactsTokenInUrl(t *testing.T) {
 	// A net/http transport error embeds the ping URL, which carries the token.
 	msg := `ionhour: ping request failed: Get "http://127.0.0.1:9/api/signals/ping/secret-token-123?duration=5": dial tcp: connection refused`
 
-	got := scrubSecrets(msg, "secret-token-123", "ionh_key")
+	got := scrubSecrets(msg, "secret-token-123")
 
 	if strings.Contains(got, "secret-token-123") {
 		t.Errorf("scrubbed message still contains the token: %q", got)
@@ -170,18 +138,10 @@ func TestScrubSecretsRedactsTokenInUrl(t *testing.T) {
 	}
 }
 
-func TestScrubSecretsRedactsApiKey(t *testing.T) {
-	got := scrubSecrets("auth failed for ionh_live_supersecret", "tok", "ionh_live_supersecret")
-
-	if strings.Contains(got, "ionh_live_supersecret") {
-		t.Errorf("scrubbed message still contains the API key: %q", got)
-	}
-}
-
 func TestScrubSecretsEmptyTokenIsNoOp(t *testing.T) {
 	msg := "a generic error with no secrets"
 
-	if got := scrubSecrets(msg, "", ""); got != msg {
+	if got := scrubSecrets(msg, ""); got != msg {
 		t.Errorf("scrubSecrets with empty secrets = %q, want the message unchanged", got)
 	}
 }

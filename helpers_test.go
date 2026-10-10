@@ -83,10 +83,10 @@ func okHandler(w http.ResponseWriter, _ *http.Request) {
 }
 
 // testClient builds a client pointed at baseURL with sleeps eliminated so retry
-// tests run instantly. Env vars are cleared so header-absence assertions hold.
+// tests run instantly. IONHOUR_BASE_URL is cleared so the explicit URL is the
+// only input.
 func testClient(t *testing.T, baseURL string, opts ...ClientOption) *Client {
 	t.Helper()
-	t.Setenv(envAPIKey, "")
 	t.Setenv(envBaseURL, "")
 	all := append([]ClientOption{WithBaseURL(baseURL)}, opts...)
 	c := NewClient(all...)
@@ -95,9 +95,9 @@ func testClient(t *testing.T, baseURL string, opts ...ClientOption) *Client {
 }
 
 // mustRegister registers a job or fails the test.
-func mustRegister(t *testing.T, c *Client, token string, opts ...JobOption) *Job {
+func mustRegister(t *testing.T, c *Client, token string) *Job {
 	t.Helper()
-	job, err := c.RegisterJob(token, opts...)
+	job, err := c.RegisterJob(token)
 	if err != nil {
 		t.Fatalf("RegisterJob(%q) returned error: %v", token, err)
 	}

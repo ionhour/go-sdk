@@ -3,23 +3,11 @@ package ionhour
 import (
 	"log/slog"
 	"net/http"
-	"strings"
 	"time"
 )
 
 // ClientOption configures a [Client] in [NewClient].
 type ClientOption func(*Client)
-
-// WithAPIKey sets the global workspace API key (ionh_...). It is sent as
-// "Authorization: Bearer <key>" on every ping unless a per-job key overrides it
-// (see [WithJobAPIKey]). When omitted, NewClient falls back to IONHOUR_API_KEY.
-//
-// The value is trimmed of surrounding whitespace (a stray newline from a .env
-// file must not produce a malformed header), and a whitespace-only value is
-// treated as absent so the environment fallback can still apply.
-func WithAPIKey(apiKey string) ClientOption {
-	return func(c *Client) { c.apiKey = strings.TrimSpace(apiKey) }
-}
 
 // WithBaseURL overrides the ingestion base URL. When omitted, NewClient falls
 // back to IONHOUR_BASE_URL and then to [DefaultBaseURL].
@@ -70,19 +58,6 @@ func WithUserAgent(userAgent string) ClientOption {
 // surface only through [PingResult].
 func WithLogger(logger *slog.Logger) ClientOption {
 	return func(c *Client) { c.logger = logger }
-}
-
-// JobOption configures a [Job] in [Client.RegisterJob].
-type JobOption func(*Job)
-
-// WithJobAPIKey sets a per-job workspace API key that overrides the client's
-// global key for this job's pings. Use it when a single client registers a mix
-// of protected and unprotected jobs.
-//
-// Like [WithAPIKey], the value is whitespace-trimmed and a whitespace-only value
-// is treated as absent (the job falls back to the client's key).
-func WithJobAPIKey(apiKey string) JobOption {
-	return func(j *Job) { j.apiKey = strings.TrimSpace(apiKey) }
 }
 
 // PingOption configures a single ping ([Job.Success], [Job.Fail], [Job.Ping],

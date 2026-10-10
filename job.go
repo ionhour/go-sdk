@@ -12,7 +12,6 @@ import (
 // [Job.Fail], or [Job.Run]. A Job is safe for concurrent use.
 type Job struct {
 	token  string
-	apiKey string // per-job override; empty means fall back to the client key
 	client *Client
 }
 
@@ -20,19 +19,12 @@ type Job struct {
 //
 // The token is validated locally (it must be non-empty and contain no
 // whitespace) and a malformed token fails fast with an error — no network call
-// is made. Supply [WithJobAPIKey] to override the client's global API key for
-// this job's pings.
-func (c *Client) RegisterJob(jobToken string, opts ...JobOption) (*Job, error) {
+// is made.
+func (c *Client) RegisterJob(jobToken string) (*Job, error) {
 	if err := validateToken(jobToken); err != nil {
 		return nil, err
 	}
-	j := &Job{token: jobToken, client: c}
-	for _, opt := range opts {
-		if opt != nil {
-			opt(j)
-		}
-	}
-	return j, nil
+	return &Job{token: jobToken, client: c}, nil
 }
 
 var (
@@ -40,28 +32,17 @@ var (
 	defaultClient     *Client
 )
 
-// RegisterJob is the package-level, two-parameter convenience for the simplest
-// install. It registers jobToken against a lazily-created default client (which
-// reads IONHOUR_API_KEY / IONHOUR_BASE_URL from the environment).
-//
-// An empty apiKey means the job is unprotected and adds no per-job key: the
-// default client's key (from IONHOUR_API_KEY, if any) still applies. A non-empty
-// apiKey is used as a per-job override. For anything beyond the defaults, build
-// a client with [NewClient] and use [Client.RegisterJob].
+// RegisterJob is the package-level convenience for the simplest install. It
+// registers jobToken against a lazily-created default client (which reads
+// IONHOUR_BASE_URL from the environment). For anything beyond the defaults,
+// build a client with [NewClient] and use [Client.RegisterJob].
 //
 // Environment note: the default client is created once, on first use, and the
-// IONHOUR_API_KEY / IONHOUR_BASE_URL values are captured at that moment and
-// frozen for the lifetime of the process. Changing those variables later has no
-// effect on the default client. Build an explicit [NewClient] if you need the
-// environment re-read.
-func RegisterJob(jobToken, apiKey string) (*Job, error) {
-	var opts []JobOption
-	// A whitespace-only key is treated as absent (no per-job override); a padded
-	// key is trimmed by WithJobAPIKey so it can't corrupt the Bearer header.
-	if strings.TrimSpace(apiKey) != "" {
-		opts = append(opts, WithJobAPIKey(apiKey))
-	}
-	return sharedDefaultClient().RegisterJob(jobToken, opts...)
+// IONHOUR_BASE_URL value is captured at that moment and frozen for the lifetime
+// of the process. Changing it later has no effect on the default client. Build
+// an explicit [NewClient] if you need the environment re-read.
+func RegisterJob(jobToken string) (*Job, error) {
+	return sharedDefaultClient().RegisterJob(jobToken)
 }
 
 // sharedDefaultClient lazily builds the process-wide default client, capturing
@@ -86,15 +67,14 @@ func resetDefaultClientForTest() {
 // Token returns the job's ping token.
 func (j *Job) Token() string { return j.token }
 
-// String implements fmt.Stringer, redacting both the token and the API key so
-// that logging a Job with %v or %+v cannot leak the credential. The token is a
-// credential in its own right (it is what authorizes a ping), so it is redacted
-// too, not just the API key.
+// String implements fmt.Stringer, redacting the token so that logging a Job
+// with %v or %+v cannot leak it. The token is the credential that authorizes a
+// ping.
 //
 // Note: %#v (Go's verbose GoString syntax) bypasses fmt.Stringer and will print
 // the unexported fields — avoid %#v on a Job.
 func (j *Job) String() string {
-	return "ionhour.Job(token=<redacted>, apiKey=<redacted>)"
+	return "ionhour.Job(token=<redacted>)"
 }
 
 // Success reports a successful heartbeat. It never panics.
@@ -132,14 +112,6 @@ func (j *Job) Fail(ctx context.Context, opts ...PingOption) (PingResult, error) 
 // [Job.Run] and [RunValue] send this automatically before the wrapped function.
 func (j *Job) Start(ctx context.Context, opts ...PingOption) (PingResult, error) {
 	return j.client.doPing(ctx, j, pingStart, buildPingRequest(opts))
-}
-
-// effectiveAPIKey returns the per-job key when set, else the client's key.
-func (j *Job) effectiveAPIKey() string {
-	if j.apiKey != "" {
-		return j.apiKey
-	}
-	return j.client.apiKey
 }
 
 // validateToken enforces the local usage rules: non-empty, no whitespace.

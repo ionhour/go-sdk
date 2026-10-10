@@ -141,38 +141,53 @@ func TestRIDAndDurationQueryParams(t *testing.T) {
 	}
 }
 
-func TestAuthorizationHeaderClientKey(t *testing.T) {
+// Protected jobs are not enforced yet (spec 027), so heartbeat pings carry no
+// credential beyond the token in the path. A stray IONHOUR_API_KEY in the
+// environment must never turn into an Authorization header on any ping kind.
+// The variable is set BEFORE the client is built, so a regression that reads it
+// in NewClient fails here.
+func TestPingsNeverSendAuthorizationHeader(t *testing.T) {
 	srv, rec := newRecordingServer(t, okHandler)
-	c := testClient(t, srv.URL, WithAPIKey("client-key"))
-	job := mustRegister(t, c, "tok")
-
-	_, _ = job.Success(context.Background())
-
-	if got := rec.last(t).header.Get("Authorization"); got != "Bearer client-key" {
-		t.Errorf("Authorization = %q, want Bearer client-key", got)
-	}
-}
-
-func TestAuthorizationHeaderPerJobBeatsClient(t *testing.T) {
-	srv, rec := newRecordingServer(t, okHandler)
-	c := testClient(t, srv.URL, WithAPIKey("client-key"))
-	job := mustRegister(t, c, "tok", WithJobAPIKey("job-key"))
-
-	_, _ = job.Success(context.Background())
-
-	if got := rec.last(t).header.Get("Authorization"); got != "Bearer job-key" {
-		t.Errorf("Authorization = %q, want Bearer job-key", got)
-	}
-}
-
-func TestAuthorizationHeaderAbsentWhenNoKey(t *testing.T) {
-	srv, rec := newRecordingServer(t, okHandler)
+	t.Setenv("IONHOUR_API_KEY", "ionh_stray_env_key")
 	job := mustRegister(t, testClient(t, srv.URL), "tok")
 
-	_, _ = job.Success(context.Background())
+	assertNoAuthorizationOnAnyPing(t, job, rec)
+}
 
-	if got := rec.last(t).header.Get("Authorization"); got != "" {
-		t.Errorf("Authorization = %q, want empty", got)
+// The package-level RegisterJob builds its default client from the environment,
+// so it gets the same guarantee.
+func TestPackageLevelPingsNeverSendAuthorizationHeader(t *testing.T) {
+	srv, rec := newRecordingServer(t, okHandler)
+	t.Setenv("IONHOUR_API_KEY", "ionh_stray_env_key")
+	t.Setenv(envBaseURL, srv.URL)
+	resetDefaultClientForTest()
+	t.Cleanup(resetDefaultClientForTest)
+
+	job, err := RegisterJob("tok")
+	if err != nil {
+		t.Fatalf("RegisterJob: %v", err)
+	}
+
+	assertNoAuthorizationOnAnyPing(t, job, rec)
+}
+
+// assertNoAuthorizationOnAnyPing sends success, fail and start pings and checks
+// that none of them carried an Authorization header.
+func assertNoAuthorizationOnAnyPing(t *testing.T, job *Job, rec *recorder) {
+	t.Helper()
+	ctx := context.Background()
+
+	_, _ = job.Success(ctx)
+	_, _ = job.Fail(ctx)
+	_, _ = job.Start(ctx)
+
+	if rec.count() != 3 {
+		t.Fatalf("requests = %d, want 3", rec.count())
+	}
+	for i, got := range rec.all() {
+		if auth := got.header.Get("Authorization"); auth != "" {
+			t.Errorf("request %d Authorization = %q, want none", i, auth)
+		}
 	}
 }
 
@@ -277,7 +292,6 @@ func TestExhaustedRetriesReturnNilUsageErrWithPingErr(t *testing.T) {
 
 func TestConnectionRefusedReturnsFailWithoutPanic(t *testing.T) {
 	// Env isolation for suite uniformity (matches the testClient helper).
-	t.Setenv(envAPIKey, "")
 	t.Setenv(envBaseURL, "")
 
 	// Start then immediately close a server so its address refuses connections.
@@ -363,7 +377,6 @@ func TestContextAlreadyCancelledAborts(t *testing.T) {
 // returns a delay long enough that only cancellation can end the wait, removing
 // any wall-clock dependence.
 func TestContextCancelledDuringBackoffStopsRetries(t *testing.T) {
-	t.Setenv(envAPIKey, "")
 	t.Setenv(envBaseURL, "")
 	srv, rec := newRecordingServer(t, func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusServiceUnavailable)
@@ -517,44 +530,5 @@ func TestTokenIsPathEscaped(t *testing.T) {
 	}
 	if dur := got.query.Get("duration"); dur != "5" {
 		t.Errorf("duration = %q, want 5", dur)
-	}
-}
-
-// Rust-review parity: a whitespace-padded key must be trimmed so the Bearer
-// header is exact — a padded " ionh_x\n" must not become a malformed header
-// that surfaces only as a silent 401.
-func TestAPIKeyTrimmedInAuthorizationHeader(t *testing.T) {
-	srv, rec := newRecordingServer(t, okHandler)
-	c := testClient(t, srv.URL, WithAPIKey(" ionh_secret\n"))
-	job := mustRegister(t, c, "tok")
-
-	_, _ = job.Success(context.Background())
-
-	if got := rec.last(t).header.Get("Authorization"); got != "Bearer ionh_secret" {
-		t.Errorf("Authorization = %q, want %q", got, "Bearer ionh_secret")
-	}
-}
-
-func TestPerJobKeyTrimmedInAuthorizationHeader(t *testing.T) {
-	srv, rec := newRecordingServer(t, okHandler)
-	c := testClient(t, srv.URL, WithAPIKey("ionh_client"))
-	job := mustRegister(t, c, "tok", WithJobAPIKey("\tionh_job "))
-
-	_, _ = job.Success(context.Background())
-
-	if got := rec.last(t).header.Get("Authorization"); got != "Bearer ionh_job" {
-		t.Errorf("Authorization = %q, want %q", got, "Bearer ionh_job")
-	}
-}
-
-func TestWhitespaceOnlyKeyOmitsAuthorization(t *testing.T) {
-	srv, rec := newRecordingServer(t, okHandler)
-	c := testClient(t, srv.URL, WithAPIKey("   \t\n"))
-	job := mustRegister(t, c, "tok")
-
-	_, _ = job.Success(context.Background())
-
-	if got := rec.last(t).header.Get("Authorization"); got != "" {
-		t.Errorf("Authorization = %q, want empty (whitespace-only key is absent)", got)
 	}
 }

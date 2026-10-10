@@ -60,11 +60,10 @@ func (r *recorder) all() []capturedRequest {
 }
 
 // newRecordingServer starts a server that records each request and delegates the
-// response to handler. It is torn down automatically. Env vars are cleared so
-// header/base-url assertions are not polluted by the developer's shell.
+// response to handler. It is torn down automatically. IONHOUR_BASE_URL is
+// cleared so base-url assertions are not polluted by the developer's shell.
 func newRecordingServer(t *testing.T, handler http.HandlerFunc) (*httptest.Server, *recorder) {
 	t.Helper()
-	t.Setenv("IONHOUR_API_KEY", "")
 	t.Setenv("IONHOUR_BASE_URL", "")
 	rec := &recorder{}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
