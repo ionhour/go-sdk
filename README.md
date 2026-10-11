@@ -39,7 +39,7 @@ import (
 )
 
 func main() {
-	// The token alone is the credential; pings send no Authorization header.
+	// The token alone is the credential; token pings send no Authorization header.
 	job, _ := ionhour.RegisterJob("your-job-token")
 	job.Success(context.Background())
 }
@@ -67,6 +67,37 @@ _ = err
 > process. Changing that variable later has no effect on it —
 > build an explicit client with [`NewClient`](#configuring-a-client) if you need
 > the environment re-read.
+
+## Slug mode
+
+Address a job by a human-readable slug in your API key's workspace instead of
+by token, and optionally create it on the first ping. The curl equivalent:
+
+```bash
+curl -H "Authorization: Bearer $IONHOUR_API_KEY" \
+  "https://api.ionhour.com/api/signals/s/nightly-report?create=1"
+```
+
+```go
+// Reads IONHOUR_API_KEY (and IONHOUR_API_BASE_URL, default https://api.ionhour.com/api).
+job, err := ionhour.RegisterJobBySlug("nightly-report", ionhour.WithCreate())
+if err != nil {
+	panic(err) // invalid slug, or no API key configured
+}
+res, _ := job.Success(context.Background())
+_ = res.Created // true on the ping that created the job
+```
+
+The returned `*Job` has the same `Success` / `Fail` / `Start` / `Run` surface.
+Slug pings go to the **API host** with `Authorization: Bearer <key>`; token
+pings never send the key. `RegisterJobBySlug` returns `*InvalidSlugError` for a
+slug outside `^[a-z0-9_-]{1,64}$` (its message shows only a short prefix of the
+rejected value), `ErrMissingAPIKey` when no key is configured,
+and `ErrInvalidAPIKey` for a key with whitespace or control characters.
+Auto-creation needs the server flag `job_auto_provisioning`, which is OFF by
+default; with it off a create ping fails with HTTP 403 and
+`HTTPStatusError.Code == "FEATURE_DISABLED"`. Slug 4xx responses are never
+retried. 429 and 5xx use the usual backoff.
 
 ## Wrapping work with `Run` and `RunValue`
 
@@ -162,6 +193,8 @@ if _, err := job.Success(context.Background(), ionhour.WithRID("run-42")); err !
 | `WithUserAgent`     | `ionhour-go/0.1.0`               | Empty values are ignored.                                            |
 | `WithHTTPClient`    | `&http.Client{}`                 | Supply a custom transport/proxy. Nil is ignored.                     |
 | `WithLogger`        | none                             | `*slog.Logger`; ping failures logged at error level when set.        |
+| `WithAPIBaseURL`    | `https://api.ionhour.com/api`    | Slug mode only. Env fallback: `IONHOUR_API_BASE_URL`.                |
+| `WithAPIKey`        | none                             | Slug mode only, sent as a Bearer header. Env fallback: `IONHOUR_API_KEY`. Trimmed; blank counts as absent. |
 
 ### Ping options
 
@@ -200,12 +233,13 @@ Monitoring must never take down the host application:
 
 ## Credential handling
 
-- **The token is the only credential.** Pings send no `Authorization` header,
-  and `IONHOUR_API_KEY` is not read.
-- **Redaction in logs.** `Job` implements `fmt.Stringer` and redacts the token,
-  so logging one with `%v` or `%+v` will not leak the credential. Note the Go
-  limitation: `%#v` bypasses `Stringer` and still prints the unexported fields —
-  avoid `%#v` on a `Job`.
+- **The token is the only credential on token pings.** They send no
+  `Authorization` header, even when `WithAPIKey` or `IONHOUR_API_KEY` is set.
+  The API key is sent only by slug-mode jobs.
+- **Redaction in logs.** `Job` and `Client` implement `fmt.Stringer` and
+  `fmt.GoStringer`, so `%v`, `%+v` and `%#v` never print the token or the API
+  key. The automatic logger attributes a slug job by its slug, and a transport
+  error that echoes the key has it replaced by a short prefix.
 
 ## CLI
 

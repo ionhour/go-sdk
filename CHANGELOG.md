@@ -44,15 +44,30 @@ Initial release.
 - Wire protocol per the Ionhour SDK contract: GET without a payload, POST JSON
   with a payload, `/fail` and `/start` suffixes, `rid`, `duration`, `host`, `env`,
   and `exit_code` query parameters, and the User-Agent `ionhour-go/0.1.0`. Pings
-  authenticate by job token alone and never send an `Authorization` header
-  (`IONHOUR_API_KEY` is not read); protected jobs, which require an API key on
-  pings, will ship with their own option. Retries (3 attempts) on network
+  authenticate by job token alone and never send an `Authorization` header,
+  even with `WithAPIKey` or `IONHOUR_API_KEY` set (both are slug-mode only);
+  protected jobs, which require an API key on pings, will ship with their own
+  option. Retries (3 attempts) on network
   errors, 429, and 5xx only; other 4xx are never retried; context cancellation
   aborts without a retry sleep. Backoff is clamped — 1s before the second attempt,
   then 2s before every subsequent one (1s, 2s, 2s, …) — so it never grows
   linearly or exponentially.
+- Slug mode: `Client.RegisterJobBySlug(slug, opts...)` and the package-level
+  `RegisterJobBySlug`, with `WithCreate()` for `?create=1`. Pings
+  `{apiBaseURL}/signals/s/{slug}` (`/fail`, `/start`) on the API host with
+  `Authorization: Bearer <key>`. New client options `WithAPIBaseURL`
+  (`IONHOUR_API_BASE_URL`, default `https://api.ionhour.com/api`) and
+  `WithAPIKey` (`IONHOUR_API_KEY`, trimmed, blank = absent). Registration
+  returns `*InvalidSlugError` (its `Error()` shows at most an 8-character
+  prefix of the rejected value, in case a key was passed by mistake; the full
+  value stays in `Slug`), `ErrMissingAPIKey` or `ErrInvalidAPIKey`.
+  `PingResult.Created` reports auto-creation (201), and
+  `HTTPStatusError.Code` carries the slug error code. Slug 4xx are never
+  retried, except 429. `Job.Slug()` returns the slug.
 - Defensive credential handling: the job token is path-escaped when building the
-  ping URL, and `Job` redacts the token in its `fmt.Stringer` output.
+  ping URL, and `Job` and `Client` redact the token and API key in their
+  `fmt.Stringer` and `fmt.GoStringer` output (so `%#v` is safe too). The API
+  key is scrubbed from transport-error text and never logged.
 - Transport-error text is scrubbed: net/http's `*url.Error` embeds the request
   URL — and therefore the job token — in its message, so any transport error
   reaching the automatic logger or `PingResult.Err` has the token (raw and

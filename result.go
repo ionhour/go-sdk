@@ -21,4 +21,8 @@ type PingResult struct {
 	// errors.As against *PayloadTooLargeError or *HTTPStatusError); callers who
 	// treat monitoring as best-effort can ignore it entirely.
 	Err error
+
+	// Created is true when a slug-mode ping auto-created the job (HTTP 201 or a
+	// "created": true body). Always false for token pings.
+	Created bool
 }

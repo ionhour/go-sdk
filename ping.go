@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -81,7 +82,7 @@ func (k pingKind) action() string {
 func (c *Client) doPing(ctx context.Context, job *Job, kind pingKind, pr *pingRequest) (PingResult, error) {
 	result, usageErr := c.execute(ctx, job, kind, pr)
 	if !result.OK {
-		c.logError(kind, result.Err)
+		c.logError(job, kind, result.Err)
 	}
 	return result, usageErr
 }
@@ -117,7 +118,7 @@ func (c *Client) execute(ctx context.Context, job *Job, kind pingKind, pr *pingR
 		method = http.MethodPost
 	}
 
-	endpoint, err := c.buildURL(job.token, kind, pr)
+	endpoint, err := c.buildURL(job, kind, pr)
 	if err != nil {
 		// A missing/unparsable base URL is a client misconfiguration — loud.
 		return PingResult{Err: err}, err
@@ -174,6 +175,10 @@ func (c *Client) attempt(ctx context.Context, method, endpoint string, body []by
 		req.Header.Set("Content-Type", "application/json")
 	}
 	req.Header.Set("User-Agent", c.userAgent)
+	// Only slug pings carry a credential; token pings never send Authorization.
+	if job.isSlug() {
+		req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	}
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -186,13 +191,47 @@ func (c *Client) attempt(ctx context.Context, method, endpoint string, body []by
 		return scrubbedTransportError("ionhour: ping request failed", err, job)
 	}
 	defer resp.Body.Close()
+	var parsed slugResponseBody
+	if job.isSlug() {
+		parsed = readSlugBody(resp.Body)
+	}
 	// Drain the body so the connection can be reused by keep-alive.
 	_, _ = io.Copy(io.Discard, resp.Body)
 
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-		return PingResult{OK: true, Status: resp.StatusCode}
+		created := job.isSlug() && (resp.StatusCode == http.StatusCreated || parsed.Created)
+		return PingResult{OK: true, Status: resp.StatusCode, Created: created}
 	}
-	return PingResult{Status: resp.StatusCode, Err: &HTTPStatusError{Status: resp.StatusCode}}
+	return PingResult{Status: resp.StatusCode, Err: &HTTPStatusError{Status: resp.StatusCode, Code: parsed.code()}}
+}
+
+// maxSlugBodyBytes bounds how much of a slug-route response is parsed.
+const maxSlugBodyBytes = 4 * 1024
+
+// errorCodePattern accepts only well-formed server error codes, so a hostile
+// or unexpected body can never inject arbitrary text into an error message.
+var errorCodePattern = regexp.MustCompile(`^[A-Z][A-Z0-9_]{0,63}$`)
+
+// slugResponseBody is the subset of a slug-route response the SDK reads: the
+// success body's created flag and the error envelope's code.
+type slugResponseBody struct {
+	Created bool   `json:"created"`
+	Code    string `json:"code"`
+}
+
+// code returns the envelope code when it is well-formed, else "".
+func (b slugResponseBody) code() string {
+	if errorCodePattern.MatchString(b.Code) {
+		return b.Code
+	}
+	return ""
+}
+
+// readSlugBody best-effort decodes a bounded slug-route body. It never fails.
+func readSlugBody(r io.Reader) slugResponseBody {
+	var body slugResponseBody
+	_ = json.NewDecoder(io.LimitReader(r, maxSlugBodyBytes)).Decode(&body)
+	return body
 }
 
 // isRetryable reports whether a failed result should be retried: transport
@@ -223,20 +262,28 @@ func sleepCtx(ctx context.Context, d time.Duration) bool {
 	}
 }
 
-// buildURL assembles the ping endpoint and query string.
-func (c *Client) buildURL(token string, kind pingKind, pr *pingRequest) (string, error) {
-	base := strings.TrimRight(c.baseURL, "/")
+// buildURL assembles the ping endpoint and query string: token jobs ping
+// {baseURL}/signals/ping/{token}, slug jobs ping {apiBaseURL}/signals/s/{slug}.
+func (c *Client) buildURL(job *Job, kind pingKind, pr *pingRequest) (string, error) {
+	baseURL, prefix, id := c.baseURL, "/signals/ping/", job.token
+	if job.isSlug() {
+		baseURL, prefix, id = c.apiBaseURL, "/signals/s/", job.slug
+	}
+	base := strings.TrimRight(baseURL, "/")
 	if base == "" {
 		return "", &ConfigError{Reason: "base URL is empty"}
 	}
 
 	var b strings.Builder
 	b.WriteString(base)
-	b.WriteString("/signals/ping/")
-	b.WriteString(url.PathEscape(token))
+	b.WriteString(prefix)
+	b.WriteString(url.PathEscape(id))
 	b.WriteString(kind.pathSuffix())
 
 	query := url.Values{}
+	if job.create {
+		query.Set("create", "1")
+	}
 	if pr.rid != "" {
 		query.Set("rid", pr.rid)
 	}
@@ -260,7 +307,7 @@ func (c *Client) buildURL(token string, kind pingKind, pr *pingRequest) (string,
 	full := b.String()
 	if _, err := url.ParseRequestURI(full); err != nil {
 		// The parse error echoes the full URL, which carries the token — scrub it.
-		return "", &ConfigError{Reason: "invalid base URL: " + scrubSecrets(err.Error(), token)}
+		return "", &ConfigError{Reason: "invalid base URL: " + scrubSecrets(err.Error(), job.secret())}
 	}
 	return full, nil
 }
@@ -274,15 +321,20 @@ func durationMillis(d time.Duration) int64 {
 }
 
 // logError emits a single error-level log line for a failed ping when a logger
-// is configured. The job token is intentionally not logged (it is a credential).
-func (c *Client) logError(kind pingKind, err error) {
+// is configured. The job token and API key are never logged (they are
+// credentials); a slug job is attributed by its slug, which is not secret.
+func (c *Client) logError(job *Job, kind pingKind, err error) {
 	if c.logger == nil || err == nil {
 		return
 	}
-	c.logger.Error("ionhour: heartbeat ping failed",
+	attrs := []any{
 		slog.String("action", kind.action()),
 		slog.String("error", err.Error()),
-	)
+	}
+	if job.isSlug() {
+		attrs = append(attrs, slog.String("slug", job.slug))
+	}
+	c.logger.Error("ionhour: heartbeat ping failed", attrs...)
 }
 
 // withMergedErrorPayload returns a PingOption whose payload merges the run

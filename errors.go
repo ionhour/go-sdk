@@ -9,6 +9,28 @@ import (
 // supplied job token is empty.
 var ErrEmptyToken = errors.New("ionhour: job token must not be empty")
 
+// ErrMissingAPIKey is returned by [Client.RegisterJobBySlug] when no API key is
+// configured. Slug mode authenticates with the key, so this fails loudly at
+// registration.
+var ErrMissingAPIKey = errors.New("ionhour: slug mode needs an API key: use WithAPIKey or set IONHOUR_API_KEY")
+
+// ErrInvalidAPIKey is returned by [Client.RegisterJobBySlug] when the API key
+// contains whitespace or control characters. The key is never echoed.
+var ErrInvalidAPIKey = errors.New("ionhour: API key must not contain whitespace or control characters")
+
+// InvalidSlugError is returned by [Client.RegisterJobBySlug] when the slug does
+// not match ^[a-z0-9_-]{1,64}$. A rejected "slug" may be a credential passed by
+// mistake (for example swapped arguments), so Error() shows only a short
+// prefix; the full value stays in Slug for callers using errors.As.
+type InvalidSlugError struct {
+	// Slug is the full rejected value. It is never part of Error().
+	Slug string
+}
+
+func (e *InvalidSlugError) Error() string {
+	return fmt.Sprintf("ionhour: invalid slug %q: must match ^[a-z0-9_-]{1,64}$", redactToken(e.Slug))
+}
+
 // InvalidTokenError is returned by registration when a job token is malformed
 // (for example, it contains whitespace). The token value itself is deliberately
 // omitted from the message to avoid leaking a credential into logs.
@@ -53,9 +75,16 @@ func (e *ExitCodeRangeError) Error() string {
 type HTTPStatusError struct {
 	// Status is the HTTP status code returned by the server.
 	Status int
+	// Code is the stable error code from a slug-route error body (for example
+	// "KEY_SCOPE_DENIED" or "FEATURE_DISABLED"). Empty for token pings and for
+	// bodies without a well-formed code.
+	Code string
 }
 
 func (e *HTTPStatusError) Error() string {
+	if e.Code != "" {
+		return fmt.Sprintf("ionhour: server responded with HTTP status %d (%s)", e.Status, e.Code)
+	}
 	return fmt.Sprintf("ionhour: server responded with HTTP status %d", e.Status)
 }
 

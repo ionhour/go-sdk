@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -16,6 +17,11 @@ const (
 	// DefaultBaseURL is the Ionhour signals ingestion endpoint. Override it with
 	// [WithBaseURL] or the IONHOUR_BASE_URL environment variable.
 	DefaultBaseURL = "https://signal.ionhour.com/api"
+
+	// DefaultAPIBaseURL is the API host that serves slug-mode pings
+	// (/signals/s/{slug}). The signal host serves only token pings. Override it
+	// with [WithAPIBaseURL] or the IONHOUR_API_BASE_URL environment variable.
+	DefaultAPIBaseURL = "https://api.ionhour.com/api"
 
 	// DefaultTimeout is the per-attempt HTTP timeout.
 	DefaultTimeout = 10 * time.Second
@@ -36,7 +42,9 @@ const (
 	maxHostLen = 253
 	maxEnvLen  = 32
 
-	envBaseURL = "IONHOUR_BASE_URL"
+	envBaseURL    = "IONHOUR_BASE_URL"
+	envAPIBaseURL = "IONHOUR_API_BASE_URL"
+	envAPIKey     = "IONHOUR_API_KEY"
 )
 
 // Client is a configured Ionhour SDK client. It is safe for concurrent use by
@@ -44,6 +52,10 @@ const (
 // with [Client.RegisterJob].
 type Client struct {
 	baseURL    string
+	apiBaseURL string
+	// apiKey is used ONLY by slug-mode jobs, as a Bearer header. It is never
+	// printed (see String/GoString) and never sent on token pings.
+	apiKey     string
 	userAgent  string
 	timeout    time.Duration
 	retries    int
@@ -61,8 +73,12 @@ type Client struct {
 // Defaults follow the Ionhour SDK contract: base URL https://signal.ionhour.com/api,
 // a 10-second per-attempt timeout, three total attempts with 1s/2s backoff, and
 // the User-Agent "ionhour-go/0.1.0". When [WithBaseURL] is not supplied,
-// NewClient falls back to the IONHOUR_BASE_URL environment variable. Pings
+// NewClient falls back to the IONHOUR_BASE_URL environment variable. Token pings
 // authenticate by job token alone and never send an Authorization header.
+//
+// Slug mode ([Client.RegisterJobBySlug]) uses a separate API base URL
+// ([WithAPIBaseURL], else IONHOUR_API_BASE_URL, else [DefaultAPIBaseURL]) and
+// an API key ([WithAPIKey], else IONHOUR_API_KEY), sent only on slug pings.
 func NewClient(opts ...ClientOption) *Client {
 	c := &Client{
 		userAgent:  defaultUserAgent,
@@ -85,6 +101,20 @@ func NewClient(opts ...ClientOption) *Client {
 		} else {
 			c.baseURL = DefaultBaseURL
 		}
+	}
+
+	if c.apiBaseURL == "" {
+		if env := os.Getenv(envAPIBaseURL); env != "" {
+			c.apiBaseURL = env
+		} else {
+			c.apiBaseURL = DefaultAPIBaseURL
+		}
+	}
+
+	// Keys are trimmed; a blank option counts as absent and falls back to env.
+	c.apiKey = strings.TrimSpace(c.apiKey)
+	if c.apiKey == "" {
+		c.apiKey = strings.TrimSpace(os.Getenv(envAPIKey))
 	}
 
 	// Guard against options that zeroed out required fields.
@@ -113,12 +143,15 @@ func defaultBackoff(attempt int) time.Duration {
 	return 2 * time.Second
 }
 
-// String implements fmt.Stringer with the client's transport settings. None of
-// them is sensitive: a Client holds no credential (the job token lives on the
-// [Job]).
+// String implements fmt.Stringer with the client's transport settings. The
+// slug-mode API key is never included (the job token lives on the [Job]).
 func (c *Client) String() string {
 	return fmt.Sprintf(
-		"ionhour.Client(baseURL=%s, timeout=%s, retries=%d, userAgent=%s)",
-		c.baseURL, c.timeout, c.retries, c.userAgent,
+		"ionhour.Client(baseURL=%s, apiBaseURL=%s, timeout=%s, retries=%d, userAgent=%s)",
+		c.baseURL, c.apiBaseURL, c.timeout, c.retries, c.userAgent,
 	)
 }
+
+// GoString implements fmt.GoStringer so %#v prints the same redacted view
+// instead of the unexported fields (which include the API key).
+func (c *Client) GoString() string { return c.String() }

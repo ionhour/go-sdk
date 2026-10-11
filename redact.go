@@ -57,12 +57,12 @@ func (e *scrubbedError) Error() string { return e.msg }
 func (e *scrubbedError) Unwrap() error { return e.err }
 
 // scrubbedTransportError wraps err under the given "ionhour: …" context and
-// returns a PingResult whose Err has the job's token redacted from
-// its message, while keeping the original error reachable for errors.Is/As.
+// returns a PingResult whose Err has the job's credential (token, or API key for
+// a slug job) redacted from its message, while keeping the original error reachable for errors.Is/As.
 func scrubbedTransportError(context string, err error, job *Job) PingResult {
 	wrapped := fmt.Errorf("%s: %w", context, err)
 	return PingResult{Err: &scrubbedError{
-		msg: scrubSecrets(wrapped.Error(), job.token),
+		msg: scrubSecrets(wrapped.Error(), job.secret()),
 		err: wrapped,
 	}}
 }

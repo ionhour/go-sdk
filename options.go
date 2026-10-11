@@ -15,6 +15,21 @@ func WithBaseURL(baseURL string) ClientOption {
 	return func(c *Client) { c.baseURL = baseURL }
 }
 
+// WithAPIBaseURL overrides the API host used by slug-mode jobs
+// ([Client.RegisterJobBySlug]). When omitted, NewClient falls back to
+// IONHOUR_API_BASE_URL and then to [DefaultAPIBaseURL]. Token pings keep using
+// the base URL from [WithBaseURL].
+func WithAPIBaseURL(apiBaseURL string) ClientOption {
+	return func(c *Client) { c.apiBaseURL = apiBaseURL }
+}
+
+// WithAPIKey sets the ionh_ API key used ONLY by slug-mode jobs, sent as
+// "Authorization: Bearer <key>". Token pings never send it. The key is trimmed;
+// a blank value counts as absent and NewClient falls back to IONHOUR_API_KEY.
+func WithAPIKey(apiKey string) ClientOption {
+	return func(c *Client) { c.apiKey = apiKey }
+}
+
 // WithHTTPClient supplies a custom *http.Client (for custom transports,
 // proxies, or connection pooling). A nil client is ignored. Note that the
 // per-attempt timeout from [WithTimeout] is applied via context regardless of

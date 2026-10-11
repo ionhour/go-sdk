@@ -2,16 +2,20 @@ package ionhour
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"sync"
 	"unicode"
 )
 
 // Job is a registered heartbeat monitor. Register one with [Client.RegisterJob]
-// (or the package-level [RegisterJob]) and report on it with [Job.Success],
-// [Job.Fail], or [Job.Run]. A Job is safe for concurrent use.
+// (or the package-level [RegisterJob]) for a token job, or with
+// [Client.RegisterJobBySlug] for a slug-mode job, and report on it with
+// [Job.Success], [Job.Fail], or [Job.Run]. A Job is safe for concurrent use.
 type Job struct {
-	token  string
+	token  string // token jobs only
+	slug   string // slug jobs only
+	create bool   // slug jobs only: send ?create=1
 	client *Client
 }
 
@@ -64,18 +68,37 @@ func resetDefaultClientForTest() {
 	defaultClient = nil
 }
 
-// Token returns the job's ping token.
+// Token returns the job's ping token, or "" for a slug-mode job.
 func (j *Job) Token() string { return j.token }
 
+// Slug returns the job's slug, or "" for a token job.
+func (j *Job) Slug() string { return j.slug }
+
+// isSlug reports whether the job pings the slug routes on the API host.
+func (j *Job) isSlug() bool { return j.slug != "" }
+
+// secret is the credential to scrub from error text: the token for token jobs,
+// the client's API key for slug jobs.
+func (j *Job) secret() string {
+	if j.isSlug() {
+		return j.client.apiKey
+	}
+	return j.token
+}
+
 // String implements fmt.Stringer, redacting the token so that logging a Job
-// with %v or %+v cannot leak it. The token is the credential that authorizes a
-// ping.
-//
-// Note: %#v (Go's verbose GoString syntax) bypasses fmt.Stringer and will print
-// the unexported fields — avoid %#v on a Job.
+// with %v or %+v cannot leak it. A slug is not a credential and is shown; the
+// API key never is.
 func (j *Job) String() string {
+	if j.isSlug() {
+		return fmt.Sprintf("ionhour.Job(slug=%s, create=%t)", j.slug, j.create)
+	}
 	return "ionhour.Job(token=<redacted>)"
 }
+
+// GoString implements fmt.GoStringer so %#v prints the same redacted view
+// instead of the unexported fields.
+func (j *Job) GoString() string { return j.String() }
 
 // Success reports a successful heartbeat. It never panics.
 //

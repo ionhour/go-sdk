@@ -1,9 +1,12 @@
 // Package ionhour is the official Go SDK for Ionhour heartbeat monitoring.
 //
 // Customers register Jobs (inbound heartbeat monitors) with one parameter: the
-// job's ping token, which is the job's credential. Pings send no Authorization
-// header. Once registered, a Job reports Success or Fail pings, or wraps a unit
-// of work with Run so timing and failure reporting happen automatically.
+// job's ping token, which is the job's credential. Token pings send no
+// Authorization header. Slug mode ([Client.RegisterJobBySlug]) addresses a job
+// by slug instead and sends the API key ([WithAPIKey], IONHOUR_API_KEY) as a
+// Bearer header to the API host. Once registered, a Job reports Success or Fail
+// pings, or wraps a unit of work with Run so timing and failure reporting
+// happen automatically.
 //
 // # Design guarantee
 //
