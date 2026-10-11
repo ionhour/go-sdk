@@ -497,7 +497,7 @@ type IncidentV1Response struct {
 	Title      string                       `json:"title"`
 }
 
-// IpFamily Read-only, computed. HTTP probes always behave as AUTO.
+// IpFamily defines model for IpFamily.
 type IpFamily string
 
 // JobV1Page defines model for JobV1Page.
@@ -813,11 +813,9 @@ type V1HttpCheckConfigResponse struct {
 	ExpectedStatusMin    nullable.Nullable[int]               `json:"expectedStatusMin"`
 	FailAfterConsecutive int                                  `json:"failAfterConsecutive"`
 	FollowRedirects      nullable.Nullable[bool]              `json:"followRedirects"`
-
-	// IpFamily Read-only, computed. HTTP probes always behave as AUTO.
-	IpFamily      IpFamily               `json:"ipFamily"`
-	LatencyWarnMs nullable.Nullable[int] `json:"latencyWarnMs"`
-	MaxRedirects  nullable.Nullable[int] `json:"maxRedirects"`
+	IpFamily             IpFamily                             `json:"ipFamily"`
+	LatencyWarnMs        nullable.Nullable[int]               `json:"latencyWarnMs"`
+	MaxRedirects         nullable.Nullable[int]               `json:"maxRedirects"`
 
 	// MaxResponseBytes Read-only, computed per check type.
 	MaxResponseBytes int                                   `json:"maxResponseBytes"`
@@ -839,11 +837,8 @@ type V1HttpCheckConfigResponse struct {
 // V1RateLimitResponse defines model for V1RateLimitResponse.
 type V1RateLimitResponse struct {
 	// Code RATE_LIMIT_EXCEEDED_KEY or OAUTH_RATE_LIMITED.
-	Code string `json:"code"`
-
-	// Detail Structured context passed through for some codes. PLAN_LIMIT_EXCEEDED carries `{ limit, resource }` (`limit` is null for a feature gate) and, for API keys, `plan`.
-	Detail nullable.Nullable[map[string]interface{}] `json:"detail,omitempty"`
-	Error  string                                    `json:"error"`
+	Code  string `json:"code"`
+	Error string `json:"error"`
 
 	// Limit Requests per minute allowed in the bucket that tripped.
 	Limit int `json:"limit"`
