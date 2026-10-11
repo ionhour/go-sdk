@@ -1,0 +1,20 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/oapi-codegen/oapi-codegen/HEAD/configuration-schema.json
+# Generates types.gen.go (schemas + operation params) from the committed v1
+# document. Regenerate with `yarn openapi:go-client`; never edit the output.
+package: api
+output: types.gen.go
+generate:
+  models: true
+  embedded-spec: false
+output-options:
+  skip-prune: false
+  # PATCH bodies use `null` to clear a field. Plain pointers cannot tell
+  # "omitted" from "null", so nullable fields use nullable.Nullable[T].
+  nullable-type: true
+compatibility:
+  # Responses always carry their required readOnly fields (id, status,
+  # createdAt, ...); keep them as values, not optional pointers.
+  disable-required-readonly-as-pointer: true
+  # Prefix enum constants with their type (CheckStatusOK, OutboundHttpMethodGET)
+  # instead of bare OK / GET / HTTP in the package namespace.
+  always-prefix-enum-values: true

@@ -1,0 +1,28 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/oapi-codegen/oapi-codegen/HEAD/configuration-schema.json
+# Generates client.gen.go (RawClient + ClientWithResponses, one method per
+# operationId, e.g. checks_create -> ChecksCreate / ChecksCreateWithResponse)
+# from the committed v1 document. Regenerate with `yarn openapi:go-client`;
+# never edit the output.
+package: api
+output: client.gen.go
+generate:
+  client: true
+  embedded-spec: false
+output-options:
+  skip-prune: false
+  nullable-type: true
+  # The hand-written facade (client.go) owns Client / NewClient /
+  # WithHTTPClient / WithBaseURL. The generated low-level client is renamed
+  # to RawClient, and the two overridden templates rename its constructor and
+  # options to Raw* (see templates/*.tmpl for the exact delta from upstream).
+  client-type-name: RawClient
+  user-templates:
+    client.tmpl: templates/client.tmpl
+    client-with-responses.tmpl: templates/client-with-responses.tmpl
+compatibility:
+  # Responses always carry their required readOnly fields (id, status,
+  # createdAt, ...); keep them as values, not optional pointers.
+  disable-required-readonly-as-pointer: true
+  # Prefix enum constants with their type (CheckStatusOK, OutboundHttpMethodGET)
+  # instead of bare OK / GET / HTTP in the package namespace.
+  always-prefix-enum-values: true
