@@ -7,6 +7,8 @@ nested module are prefixed `api/` (for example `api/v0.1.0`).
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-10-13
+
 ### Added
 
 - Generated client for the Integration API v1 (oapi-codegen v2.4.1, from
